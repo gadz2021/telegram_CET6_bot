@@ -21,14 +21,10 @@ class NvidiaClient:
     def __init__(self, rate_limiter: RateLimiter):
         self.rate_limiter = rate_limiter
 
-        # 构建 httpx 异步客户端（含代理和超时）
-        client_kwargs: dict = {}
-        if PROXY_URL:
-            client_kwargs["proxy"] = PROXY_URL
-
+        # 构建 httpx 异步客户端（NVIDIA API 直连，不走代理，忽略环境变量中的代理设置）
         self._http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(REQUEST_TIMEOUT, connect=30.0),
-            **client_kwargs,
+            trust_env=False,
         )
         self._client = AsyncOpenAI(
             base_url=NVIDIA_BASE_URL,
