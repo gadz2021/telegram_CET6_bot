@@ -402,6 +402,8 @@ async def cmd_recall(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         await update.message.reply_text(reply, parse_mode=None, reply_markup=keyboard)
 
+    await database.update_vocab_progress(uid, idx + 1)
+
 
 # ======================================================================
 # Callback: 听发音
