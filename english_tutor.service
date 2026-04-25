@@ -1,0 +1,16 @@
+[Unit]
+Description=Telegram English Tutor Bot (NVIDIA NIM)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/vscode/telegram辅助bot
+ExecStart=/usr/bin/python3 /root/vscode/telegram辅助bot/bot.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
