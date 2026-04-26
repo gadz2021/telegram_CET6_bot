@@ -118,10 +118,12 @@ def main():
         except Exception as e:
             logger.error("Daily background check failed: %s", e)
 
-    # 如果需要的话可以给 job_queue 加上任务
     if application.job_queue:
         application.job_queue.run_repeating(run_daily_check, interval=CHECK_INTERVAL, first=10)
         application.job_queue.run_repeating(active_recall_job, interval=RECALL_INTERVAL, first=30)
+        logger.info("Job queue enabled: model check every %ds, recall every %ds", CHECK_INTERVAL, RECALL_INTERVAL)
+    else:
+        logger.warning("Job queue is None! Install APScheduler: pip install APScheduler")
 
     # 注册回调处理器（模型选择的 inline keyboard）
     application.add_handler(CallbackQueryHandler(callback_model, pattern="^(ms:|mp:|noop)"))
