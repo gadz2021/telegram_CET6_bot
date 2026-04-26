@@ -1,5 +1,6 @@
 """Telegram 命令和消息处理器"""
 
+import re
 import logging
 import html
 import base64
@@ -21,6 +22,26 @@ import tempfile
 import re
 
 logger = logging.getLogger(__name__)
+
+_FILLER_WORDS = frozenset({
+    "the", "and", "but", "for", "not", "you", "all", "can", "had", "her",
+    "was", "one", "our", "out", "are", "has", "have", "this", "that", "with",
+    "from", "they", "been", "said", "each", "which", "their", "will", "other",
+    "about", "many", "then", "them", "these", "some", "would", "make", "like",
+    "into", "time", "very", "when", "come", "could", "than", "more", "what",
+    "does", "also", "just", "know", "take", "people", "your", "how", "well",
+    "tell", "give", "good", "back", "only", "going", "think", "help", "being",
+    "really", "still", "should", "where", "much", "need", "want", "because",
+})
+
+
+def _extract_keyword(text: str) -> str | None:
+    words = re.findall(r'[a-zA-Z]{3,}', text)
+    for w in words:
+        low = w.lower()
+        if low not in _FILLER_WORDS:
+            return w
+    return None
 
 # ======================================================================
 # TTS 语音生成助手
@@ -770,10 +791,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await database.add_history(uid, "user", text)
     await database.add_history(uid, "assistant", reply)
 
-    # 添加“听发音”按钮
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔊 听猫娘发音", callback_data=f"tts_last")]
-    ])
+    # 添加发音按钮
+    keyword = _extract_keyword(text)
+    buttons = []
+    if keyword:
+        buttons.append(InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{keyword}"))
+    buttons.append(InlineKeyboardButton("📖 听全文朗读", callback_data="tts_last"))
+    keyboard = InlineKeyboardMarkup([buttons])
 
     # 发送回复（尝试 Markdown，失败则纯文本）
     try:
