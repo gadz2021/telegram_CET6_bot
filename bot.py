@@ -127,7 +127,7 @@ def main():
 
     # 注册回调处理器（模型选择的 inline keyboard）
     application.add_handler(CallbackQueryHandler(callback_model, pattern="^(ms:|mp:|noop)"))
-    application.add_handler(CallbackQueryHandler(callback_tts, pattern="^tts_last$"))
+    application.add_handler(CallbackQueryHandler(callback_tts, pattern="^tts_"))
 
     # 注册图片处理器
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))

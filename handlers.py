@@ -392,9 +392,12 @@ async def cmd_recall(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply = await nvidia.chat(model, [{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}])
     reply = _clean_reply(reply)
 
-    # 添加“听发音”按钮
+    # 添加发音按钮
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔊 听猫娘发音", callback_data=f"tts_last")]
+        [
+            InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{word}"),
+            InlineKeyboardButton("📖 听全文朗读", callback_data="tts_last"),
+        ]
     ])
 
     await msg.delete()
@@ -411,10 +414,25 @@ async def cmd_recall(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ======================================================================
 async def callback_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    logger.info("TTS callback triggered by user %d", query.from_user.id)
-    await query.answer("正在生成语音，请稍候...喵~")
-    
+    data = query.data
     uid = query.from_user.id
+
+    if data.startswith("tts_word:"):
+        word = data[len("tts_word:"):]
+        await query.answer(f"正在生成「{word}」的发音...")
+        ogg_path = await _generate_tts(word)
+        try:
+            with open(ogg_path, "rb") as voice:
+                await query.message.reply_voice(voice=voice, caption=f"🔊 {word}")
+        finally:
+            if os.path.exists(ogg_path):
+                os.remove(ogg_path)
+        return
+
+    # tts_last: 朗读全文
+    logger.info("TTS callback triggered by user %d", uid)
+    await query.answer("正在生成语音，请稍候...")
+    
     # 从历史记录获取最后一条回复
     history = await _get_history(uid)
     if not history:
@@ -532,9 +550,12 @@ async def active_recall_job(context: ContextTypes.DEFAULT_TYPE):
             reply = await nvidia.chat(model, [{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}])
             reply = f"🔔 *Active Recall: 每日一词*\n\n" + _clean_reply(reply)
             
-            # 添加“听发音”按钮
+            # 添加发音按钮
             keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔊 听猫娘发音", callback_data=f"tts_last")]
+                [
+                    InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{word}"),
+                    InlineKeyboardButton("📖 听全文朗读", callback_data="tts_last"),
+                ]
             ])
             
             # 发送消息
