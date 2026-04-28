@@ -55,13 +55,14 @@ async def get_user_model(user_id: int, default_model: str) -> str:
             row = await cursor.fetchone()
             return row[0] if row else default_model
 
-async def add_history(user_id: int, role: str, content: str):
+async def add_history(user_id: int, role: str, content: str) -> int:
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
+        async with db.execute(
             "INSERT INTO history (user_id, role, content) VALUES (?, ?, ?)",
             (user_id, role, content)
-        )
-        await db.commit()
+        ) as cursor:
+            await db.commit()
+            return cursor.lastrowid
 
 async def get_history(user_id: int, limit: int) -> list[dict]:
     async with aiosqlite.connect(DB_PATH) as db:
@@ -72,6 +73,12 @@ async def get_history(user_id: int, limit: int) -> list[dict]:
         ) as cursor:
             rows = await cursor.fetchall()
             return [{"role": r, "content": c} for r, c in rows]
+
+async def get_history_by_id(history_id: int) -> dict:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT role, content FROM history WHERE id = ?", (history_id,)) as cursor:
+            row = await cursor.fetchone()
+            return {"role": row[0], "content": row[1]} if row else None
 
 async def clear_history(user_id: int):
     async with aiosqlite.connect(DB_PATH) as db:

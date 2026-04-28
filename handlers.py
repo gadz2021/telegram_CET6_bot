@@ -416,11 +416,15 @@ async def cmd_recall(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply = await nvidia.chat(model, [{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}])
     reply = _clean_reply(reply)
 
+    # 保存对话到数据库
+    await database.add_history(uid, "user", f"请讲解六级核心词汇：{word}")
+    history_id = await database.add_history(uid, "assistant", reply)
+
     # 添加发音按钮
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{word}"),
-            InlineKeyboardButton("📖 听全文朗读", callback_data="tts_last"),
+            InlineKeyboardButton("📖 听全文朗读", callback_data=f"tts_id:{history_id}"),
         ]
     ])
 
@@ -429,10 +433,6 @@ async def cmd_recall(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(reply, parse_mode="Markdown", reply_markup=keyboard)
     except Exception:
         await update.message.reply_text(reply, parse_mode=None, reply_markup=keyboard)
-
-    # 保存对话到数据库
-    await database.add_history(uid, "user", f"请讲解六级核心词汇：{word}")
-    await database.add_history(uid, "assistant", reply)
 
     await database.update_vocab_progress(uid, idx + 1)
 
@@ -457,26 +457,37 @@ async def callback_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 os.remove(ogg_path)
         return
 
-    # tts_last: 朗读全文
-    logger.info("TTS callback triggered by user %d", uid)
-    await query.answer("正在生成语音，请稍候...")
-    
-    # 从历史记录获取最后一条回复
-    history = await _get_history(uid)
-    if not history:
-        await query.message.reply_text("❌ 找不到对话记录。")
-        return
+    if data.startswith("tts_id:"):
+        history_id = int(data[len("tts_id:"):])
+        await query.answer("正在生成语音，请稍候...")
+        item = await database.get_history_by_id(history_id)
+        if not item:
+            await query.message.reply_text("❌ 找不到对应的回复内容。")
+            return
+        last_reply = item["content"]
+    elif data == "tts_last":
+        # tts_last: 朗读全文 (兼容旧版或作为兜底)
+        logger.info("TTS last callback triggered by user %d", uid)
+        await query.answer("正在生成语音，请稍候...")
         
-    # 获取最后一条回复
-    last_reply = None
-    # 往回找最后一条 AI 回复
-    for h in reversed(history):
-        if h["role"] == "assistant":
-            last_reply = h["content"]
-            break
-                
-    if not last_reply:
-        await query.message.reply_text("❌ 找不到 AI 的回复内容。")
+        # 从历史记录获取最后一条回复
+        history = await _get_history(uid)
+        if not history:
+            await query.message.reply_text("❌ 找不到对话记录。")
+            return
+            
+        # 获取最后一条回复
+        last_reply = None
+        # 往回找最后一条 AI 回复
+        for h in reversed(history):
+            if h["role"] == "assistant":
+                last_reply = h["content"]
+                break
+                    
+        if not last_reply:
+            await query.message.reply_text("❌ 找不到 AI 的回复内容。")
+            return
+    else:
         return
 
     # 生成并发送
@@ -578,11 +589,14 @@ async def active_recall_job(context: ContextTypes.DEFAULT_TYPE):
             reply = await nvidia.chat(model, [{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}])
             reply = f"🔔 *Active Recall: 每日一词*\n\n" + _clean_reply(reply)
             
+            # 保存对话到数据库
+            history_id = await database.add_history(uid, "assistant", reply)
+
             # 添加发音按钮
             keyboard = InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{word}"),
-                    InlineKeyboardButton("📖 听全文朗读", callback_data="tts_last"),
+                    InlineKeyboardButton("📖 听全文朗读", callback_data=f"tts_id:{history_id}"),
                 ]
             ])
             
@@ -592,9 +606,6 @@ async def active_recall_job(context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 await context.bot.send_message(chat_id=uid, text=reply, parse_mode=None, reply_markup=keyboard)
                 
-            # 保存对话到数据库
-            await database.add_history(uid, "assistant", reply)
-
             # 更新进度
             await database.update_vocab_progress(uid, idx + 1)
             logger.info("Sent recall word '%s' to user %d", word, uid)
@@ -799,14 +810,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 保存对话到数据库
     await database.add_history(uid, "user", text)
-    await database.add_history(uid, "assistant", reply)
+    history_id = await database.add_history(uid, "assistant", reply)
 
     # 添加发音按钮
     keyword = _extract_keyword(text)
     buttons = []
     if keyword:
         buttons.append(InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{keyword}"))
-    buttons.append(InlineKeyboardButton("📖 听全文朗读", callback_data="tts_last"))
+    buttons.append(InlineKeyboardButton("📖 听全文朗读", callback_data=f"tts_id:{history_id}"))
     keyboard = InlineKeyboardMarkup([buttons])
 
     # 发送回复（尝试 Markdown，失败则纯文本）
@@ -866,16 +877,21 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         reply = _clean_reply(reply)
         
+        # 保存对话到数据库
+        await database.add_history(uid, "user", f"[图片分析] {raw_text}")
+        history_id = await database.add_history(uid, "assistant", reply)
+
+        # 添加按钮
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("📖 听全文朗读", callback_data=f"tts_id:{history_id}")
+        ]])
+
         # 4. 发送回复
         await msg.delete()
         try:
-            await update.message.reply_text(reply, parse_mode="Markdown")
+            await update.message.reply_text(reply, parse_mode="Markdown", reply_markup=keyboard)
         except Exception:
-            await update.message.reply_text(reply, parse_mode=None)
-
-        # 保存对话到数据库
-        await database.add_history(uid, "user", f"[图片分析] {raw_text}")
-        await database.add_history(uid, "assistant", reply)
+            await update.message.reply_text(reply, parse_mode=None, reply_markup=keyboard)
 
     except Exception as e:
         logger.error("Handle photo error: %s", e)
