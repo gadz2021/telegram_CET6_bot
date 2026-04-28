@@ -45,6 +45,7 @@ from handlers import (
     cmd_users,
     cmd_verify,
     cmd_recall,
+    cmd_pause,
     cmd_speak,
     active_recall_job,
     callback_model,

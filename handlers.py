@@ -206,6 +206,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"/system — 查看 System Prompt\n"
         f"/verify — 交叉校验上一条 AI 回复（消除幻觉）\n"
         f"/recall — 手动触发一次生词推送\n"
+        f"/pause — 暂停或恢复生词推送 (暂停1天)\n"
         f"/check\_models — 手动触发模型测速\n"
     )
     if is_admin:
