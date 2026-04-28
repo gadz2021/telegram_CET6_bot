@@ -35,7 +35,8 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS vocab_progress (
                 user_id INTEGER PRIMARY KEY,
                 word_index INTEGER DEFAULT 0,
-                last_sent DATETIME
+                last_sent DATETIME,
+                pause_until DATETIME
             )
         """)
         await db.commit()
@@ -137,3 +138,22 @@ async def get_all_active_users() -> list[int]:
         async with db.execute("SELECT DISTINCT user_id FROM users") as cursor:
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
+
+async def set_pause(user_id: int, days: int):
+    """Pause pushes for N days."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO vocab_progress (user_id, pause_until) VALUES (?, datetime('now', '+' || ? || ' days')) "
+            "ON CONFLICT(user_id) DO UPDATE SET pause_until = datetime('now', '+' || ? || ' days')",
+            (user_id, days, days)
+        )
+        await db.commit()
+
+async def is_paused(user_id: int) -> bool:
+    """Check if the user has paused pushes."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT 1 FROM vocab_progress WHERE user_id = ? AND pause_until > datetime('now')",
+            (user_id,)
+        ) as cursor:
+            return await cursor.fetchone() is not None

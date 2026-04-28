@@ -6,6 +6,7 @@ import html
 import base64
 import io
 import asyncio
+from datetime import datetime
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -425,6 +426,9 @@ async def cmd_recall(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{word}"),
             InlineKeyboardButton("📖 听全文朗读", callback_data=f"tts_id:{history_id}"),
+        ],
+        [
+            InlineKeyboardButton("⏸️ 暂停推送1天", callback_data="pause_1d"),
         ]
     ])
 
@@ -455,6 +459,19 @@ async def callback_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         finally:
             if os.path.exists(ogg_path):
                 os.remove(ogg_path)
+        return
+
+    if data == "pause_1d":
+        await database.set_pause(uid, 1)
+        await query.answer("✅ 已暂停推送 1 天。明天见！", show_alert=True)
+        # 修改原消息，移除暂停按钮
+        current_markup = query.message.reply_markup
+        new_keyboard = []
+        for row in current_markup.inline_keyboard:
+            new_row = [btn for btn in row if btn.callback_data != "pause_1d"]
+            if new_row:
+                new_keyboard.append(new_row)
+        await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(new_keyboard))
         return
 
     if data.startswith("tts_id:"):
@@ -546,6 +563,12 @@ async def cmd_speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def active_recall_job(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Running scheduled active recall job...")
     
+    # 全局时间检查 (仅在 12:00 - 22:00 推送)
+    current_hour = datetime.now().hour
+    if not (12 <= current_hour < 22):
+        logger.info("Current hour %d is outside the push window (12-22), skipping job.", current_hour)
+        return
+    
     if not os.path.exists(VOCAB_FILE):
         logger.error("Vocab file %s not found", VOCAB_FILE)
         return
@@ -558,6 +581,11 @@ async def active_recall_job(context: ContextTypes.DEFAULT_TYPE):
     
     for uid in uids:
         try:
+            # 检查用户是否已暂停推送
+            if await database.is_paused(uid):
+                logger.info("User %d has paused pushes, skipping.", uid)
+                continue
+
             idx = await database.get_vocab_progress(uid)
             if idx >= len(vocab):
                 continue
@@ -597,6 +625,9 @@ async def active_recall_job(context: ContextTypes.DEFAULT_TYPE):
                 [
                     InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{word}"),
                     InlineKeyboardButton("📖 听全文朗读", callback_data=f"tts_id:{history_id}"),
+                ],
+                [
+                    InlineKeyboardButton("⏸️ 暂停推送1天", callback_data="pause_1d"),
                 ]
             ])
             
