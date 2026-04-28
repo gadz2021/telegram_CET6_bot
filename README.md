@@ -146,6 +146,140 @@ sudo systemctl start english_tutor.service
 
 ---
 
+## 🚢 代码更新与部署
+
+本地修改代码后，需要同步推送到 **GitHub** 和 **远程服务器**。以下是详细步骤：
+
+### 方式一：命令行（推荐）
+
+#### 1. 推送代码到 GitHub
+
+```bash
+# 进入项目目录
+cd /root/vscode/telegram辅助bot
+
+# 添加修改的文件
+git add .
+
+# 提交（填写简短的提交信息）
+git commit -m "描述你的修改"
+
+# 推送到 GitHub
+git push origin main
+```
+
+#### 2. 同步到远程服务器
+
+**首次配置 SSH 密钥（可选，推荐）**：
+```bash
+# 生成 SSH 密钥（如果还没有）
+ssh-keygen -t ed25519 -C "your_email@example.com"
+
+# 把公钥复制到服务器（这样以后不用输密码）
+ssh-copy-id root@115.190.249.227
+```
+
+**同步代码**：
+```bash
+# 方法 A：直接从 GitHub 拉取（推荐）
+ssh root@115.190.249.227 "cd /root/tg_bot && git pull origin main"
+
+# 方法 B：用 scp 手动推送（适合断网环境）
+# 先在本地执行：
+scp bot.py handlers.py nvidia_client.py database.py rate_limiter.py config.py root@115.190.249.227:/root/tg_bot/
+```
+
+#### 3. 重启服务
+
+```bash
+# SSH 登录服务器后执行
+ssh root@115.190.249.227
+
+# 重启 bot 服务
+systemctl restart english_tutor.service
+
+# 检查状态
+systemctl status english_tutor.service
+```
+
+---
+
+### 方式二：一键部署脚本
+
+创建一个 deploy.sh 脚本，一行命令完成上述全部步骤：
+
+```bash
+#!/bin/bash
+# 文件名：deploy.sh
+
+# 1. 推送到 GitHub
+echo "📦 推送到 GitHub..."
+git add .
+git commit -m "$1"  # 传入提交信息
+git push origin main
+
+# 2. 同步到服务器
+echo "🚀 同步到服务器..."
+ssh root@115.190.249.227 "cd /root/tg_bot && git pull origin main"
+
+# 3. 重启服务
+echo "🔄 重启服务..."
+ssh root@115.190.249.227 "systemctl restart english_tutor.service"
+
+echo "✅ 部署完成！"
+```
+
+使用方法：
+```bash
+chmod +x deploy.sh
+./deploy.sh "修复了某个 bug"
+```
+
+---
+
+### 方式三：Windows / GUI 工具（VS Code、Sourcetree 等）
+
+#### 1. GitHub 推送
+- 在 VS Code 左侧点击 **源代码管理** (Ctrl+Shift+G)
+- 填写提交信息，点击 **提交**
+- 点击 **推送** 按钮
+
+#### 2. 服务器同步
+**方法 A：VS Code Remote-SSH（推荐）**
+- 安装 VS Code 扩展 **Remote - SSH**
+- 按 `Ctrl+Shift+P` → 输入 `Remote-SSH: Connect to Host`
+- 输入 `root@115.190.249.227`，回车
+- 连接后在服务器的终端执行：
+  ```bash
+  cd /root/tg_bot
+  git pull origin main
+  systemctl restart english_tutor.service
+  ```
+
+**方法 B：手动上传**
+- 用 FileZilla / WinSCP 等工具上传修改的文件到 `/root/tg_bot/`
+- 然后 SSH 到服务器执行 `systemctl restart english_tutor.service`
+
+---
+
+### ⚠️ 注意事项
+
+1. **config.py 包含密钥**，已被 `.gitignore` 忽略，不会推送到 GitHub
+   - 如果在本地修改了 config.py，需要手动 scp 到服务器覆盖
+   - 或者在服务器上直接编辑：`ssh root@115.190.249.227 "nano /root/tg_bot/config.py"`
+
+2. **requirements.txt 变更**：如果改了依赖，需要在服务器上重新安装：
+   ```bash
+   ssh root@115.190.249.227 "pip install -r /root/tg_bot/requirements.txt --break-system-packages"
+   ```
+
+3. **查看日志排错**：
+   ```bash
+   ssh root@115.190.249.227 "journalctl -u english_tutor.service -n 30 --no-pager"
+   ```
+
+---
+
 ## 📋 命令列表
 
 ### 用户命令
