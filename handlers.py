@@ -248,6 +248,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/system — 查看当前 System Prompt\n"
         "/verify — 交叉校验上一条 AI 回复（消除幻觉）\n"
         "/recall — 手动触发一次生词推送\n"
+        "/pause — 暂停或恢复生词推送 (暂停1天)\n"
         "/check\_models — 手动触发模型测速\n"
         "/adduser `<id>` — 添加白名单 (管理员)\n"
         "/removeuser `<id>` — 移除白名单 (管理员)\n"
@@ -426,9 +427,6 @@ async def cmd_recall(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{word}"),
             InlineKeyboardButton("📖 听全文朗读", callback_data=f"tts_id:{history_id}"),
-        ],
-        [
-            InlineKeyboardButton("⏸️ 暂停推送1天", callback_data="pause_1d"),
         ]
     ])
 
@@ -439,6 +437,24 @@ async def cmd_recall(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(reply, parse_mode=None, reply_markup=keyboard)
 
     await database.update_vocab_progress(uid, idx + 1)
+
+
+# ======================================================================
+# /pause — 暂停推送
+# ======================================================================
+async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not await _check_user(uid):
+        return
+    
+    if await database.is_paused(uid):
+        # 如果已经暂停，则取消暂停
+        await database.set_pause(uid, 0) # 设置为 0 天即立即过期
+        await update.message.reply_text("▶️ 已恢复推送。")
+    else:
+        # 否则暂停 1 天
+        await database.set_pause(uid, 1)
+        await update.message.reply_text("⏸️ 已暂停生词推送 1 天。明天见！")
 
 
 # ======================================================================
@@ -459,19 +475,6 @@ async def callback_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         finally:
             if os.path.exists(ogg_path):
                 os.remove(ogg_path)
-        return
-
-    if data == "pause_1d":
-        await database.set_pause(uid, 1)
-        await query.answer("✅ 已暂停推送 1 天。明天见！", show_alert=True)
-        # 修改原消息，移除暂停按钮
-        current_markup = query.message.reply_markup
-        new_keyboard = []
-        for row in current_markup.inline_keyboard:
-            new_row = [btn for btn in row if btn.callback_data != "pause_1d"]
-            if new_row:
-                new_keyboard.append(new_row)
-        await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(new_keyboard))
         return
 
     if data.startswith("tts_id:"):
@@ -625,9 +628,6 @@ async def active_recall_job(context: ContextTypes.DEFAULT_TYPE):
                 [
                     InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{word}"),
                     InlineKeyboardButton("📖 听全文朗读", callback_data=f"tts_id:{history_id}"),
-                ],
-                [
-                    InlineKeyboardButton("⏸️ 暂停推送1天", callback_data="pause_1d"),
                 ]
             ])
             

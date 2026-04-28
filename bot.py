@@ -108,6 +108,7 @@ def main():
     application.add_handler(CommandHandler("users", cmd_users))
     application.add_handler(CommandHandler("verify", cmd_verify))
     application.add_handler(CommandHandler("recall", cmd_recall))
+    application.add_handler(CommandHandler("pause", cmd_pause))
     application.add_handler(CommandHandler("speak", cmd_speak))
 
     # 配置后台定时任务：每 24 小时 (86400秒) 执行一次检测
@@ -119,8 +120,9 @@ def main():
             logger.error("Daily background check failed: %s", e)
 
     if application.job_queue:
-        application.job_queue.run_repeating(run_daily_check, interval=CHECK_INTERVAL, first=10)
-        application.job_queue.run_repeating(active_recall_job, interval=RECALL_INTERVAL, first=30)
+        application.job_queue.run_repeating(run_daily_check, interval=CHECK_INTERVAL, first=60)
+        # 修复：不再在启动 30 秒后立即推送，而是等待一个完整周期
+        application.job_queue.run_repeating(active_recall_job, interval=RECALL_INTERVAL, first=RECALL_INTERVAL)
         logger.info("Job queue enabled: model check every %ds, recall every %ds", CHECK_INTERVAL, RECALL_INTERVAL)
     else:
         logger.warning("Job queue is None! Install APScheduler: pip install APScheduler")
