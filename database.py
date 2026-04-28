@@ -40,6 +40,15 @@ async def init_db():
             )
         """)
         await db.commit()
+
+        # 数据库迁移：为旧表添加 pause_until 列
+        try:
+            await db.execute("ALTER TABLE vocab_progress ADD COLUMN pause_until DATETIME")
+            await db.commit()
+            logger.info("Database migration: Added pause_until to vocab_progress")
+        except aiosqlite.OperationalError:
+            # 列已存在，忽略错误
+            pass
     logger.info("Database initialized.")
 
 async def set_user_model(user_id: int, model: str):
