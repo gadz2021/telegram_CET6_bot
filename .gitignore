@@ -4,3 +4,4 @@ __pycache__/
 config.py
 whitelist.json
 .env
+english_tutor.service
