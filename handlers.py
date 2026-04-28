@@ -48,8 +48,11 @@ def _extract_keyword(text: str) -> str | None:
 # ======================================================================
 async def _generate_tts(text: str) -> str:
     """生成语音文件并返回路径 (OGG 格式)"""
+    # 移除 Emoji (非 BMP 字符和一些常见的 BMP 符号)
+    clean_text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
+    clean_text = re.sub(r'[\u2600-\u27bf]', '', clean_text)
     # 过滤掉一些不适合阅读的 Markdown 符号
-    clean_text = text.replace("*", "").replace("#", "").replace("`", "")
+    clean_text = clean_text.replace("*", "").replace("#", "").replace("`", "")
     
     # 使用 edge-tts 生成 MP3
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as mp3_file:
@@ -427,6 +430,10 @@ async def cmd_recall(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         await update.message.reply_text(reply, parse_mode=None, reply_markup=keyboard)
 
+    # 保存对话到数据库
+    await database.add_history(uid, "user", f"请讲解六级核心词汇：{word}")
+    await database.add_history(uid, "assistant", reply)
+
     await database.update_vocab_progress(uid, idx + 1)
 
 
@@ -585,6 +592,9 @@ async def active_recall_job(context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 await context.bot.send_message(chat_id=uid, text=reply, parse_mode=None, reply_markup=keyboard)
                 
+            # 保存对话到数据库
+            await database.add_history(uid, "assistant", reply)
+
             # 更新进度
             await database.update_vocab_progress(uid, idx + 1)
             logger.info("Sent recall word '%s' to user %d", word, uid)
@@ -862,6 +872,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(reply, parse_mode="Markdown")
         except Exception:
             await update.message.reply_text(reply, parse_mode=None)
+
+        # 保存对话到数据库
+        await database.add_history(uid, "user", f"[图片分析] {raw_text}")
+        await database.add_history(uid, "assistant", reply)
 
     except Exception as e:
         logger.error("Handle photo error: %s", e)
