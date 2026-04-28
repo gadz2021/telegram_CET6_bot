@@ -634,13 +634,23 @@ async def active_recall_job(context: ContextTypes.DEFAULT_TYPE):
             
             # 发送消息
             try:
-                await context.bot.send_message(chat_id=uid, text=reply, parse_mode="Markdown", reply_markup=keyboard)
+                await context.bot.send_message(
+                    chat_id=uid,
+                    text=reply,
+                    parse_mode="Markdown",
+                    reply_markup=keyboard
+                )
             except Exception:
-                await context.bot.send_message(chat_id=uid, text=reply, parse_mode=None, reply_markup=keyboard)
+                await context.bot.send_message(
+                    chat_id=uid,
+                    text=reply,
+                    parse_mode=None,
+                    reply_markup=keyboard
+                )
                 
-            # 更新进度
+            # 重要：更新进度和最后发送时间，防止重复推送同一个词
             await database.update_vocab_progress(uid, idx + 1)
-            logger.info("Sent recall word '%s' to user %d", word, uid)
+            logger.info("Successfully pushed word '%s' to user %d (index %d -> %d)", word, uid, idx, idx + 1)
             
             # 稍微停顿，避免触发 Telegram 限流
             await asyncio.sleep(1.0)
