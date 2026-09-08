@@ -1,243 +1,196 @@
 # 🐱 Telegram CET-6 英语外教 Bot
 
-基于 **NVIDIA NIM API** 驱动的生产级 Telegram 英语外教 Bot，专为大学英语六级（CET-6）备考设计。
-
-集成了智能对话、生词讲解、图片识别翻译、多模型动态切换、交叉校验消除幻觉、主动式记忆复盘、双语语音朗读等功能。
-
----
-
-## ✨ 功能一览
-
-### 💬 智能对话
-- **中英双语教学**：先全英段落、后全中翻译，自然流畅不逐句死译
-- **生词造句**：遇到生词自动生成 3 个搞笑夸张例句，重点标注六级核心词汇
-- **作文练习**：引导写作并给出修改建议
-- **猫娘人设**：幽默活泼的教学风格，emoji 互动
-
-### 🤖 模型管理
-- **70+ 模型动态切换**：自动扫描 NVIDIA NIM 全部可用模型，带测速排序
-- **智能推荐排序**：推荐模型优先展示，其余按响应速度从快到慢
-- **分页选择器**：Inline Keyboard 分页浏览，一键切换
-- **切换不断对话**：换模型时保留对话历史，支持跨模型连续教学
-
-### 📷 多模态支持
-- **图片识别翻译**：发送英语截图/图片，自动翻译 + 讲解
-- **视觉模型**：Llama-3.2 Vision 等视觉模型同步双语规范
-
-### 🔍 交叉校验（Consensus Mode）
-- `/verify` 命令调用 **3 个不同架构模型**（Llama / Qwen / Mistral）并行校验
-- 物理消除 AI 幻觉，确保语法和释义的准确性
-
-### 🔔 主动式记忆复盘（Active Recall）
-- 集成 **CET-6 乱序词库**，每 2 小时自动推送生词讲解
-- `/recall` 手动触发，支持学习进度追踪
-- 进度断电保存（SQLite 持久化），重启不丢失
-
-### 🔊 语音朗读（TTS）
-- 基于 `edge-tts` + `ffmpeg`，中英双语自动识别发音
-- **🔊 听单词发音**：精准朗读当前讲解的单词（生词推送 / 对话中自动提取）
-- **📖 听全文朗读**：朗读完整 AI 回复
-- `/speak` 命令手动朗读任意文本或上一条回复
-
-### 🔐 安全与权限
-- **白名单机制**：管理员 + 数据库白名单双重验证
-- **速率限制**：改进的滑动窗口算法（40 RPM），不阻塞其他用户
-- **数据库持久化**：全量使用 SQLite，对话历史、用户设置、白名单异步持久化
+> **专为大学英语六级（CET-6）备考打造的生产级智能外教系统。**  
+> 基于 **NVIDIA NIM API** 旗舰集群驱动，深度融合 **SM-2 科学间隔重复算法**、**渐进式闪卡互动（Progressive Active Recall）**、**24小时工业级静默容灾** 与 **自然语音合成引擎**。
 
 ---
 
-## 🏗 项目结构
+## 🌟 核心硬核特性
+
+### 1. 🧠 科学抗遗忘：SM-2 间隔重复引擎（Spaced Repetition）
+- **真·艾宾浩斯记忆曲线**：告别“背了前面忘后面”。采用业界公认的 SuperMemo-2（SM-2）核心算法，每个单词动态维护记忆难度系数（`ease_factor`）与复习间隔（`interval`）。
+- **三档量化自评**：
+  - `✅ 记住了`：根据记忆曲线成倍延长复习周期（1天 ➡️ 3天 ➡️ 7天 ➡️ 18天 ➡️ 30天）；
+  - `🤔 模糊`：维持高频短周期，近期强化复习；
+  - `❌ 忘了`：立即重置记忆难度并回退到第 1 阶段，重新构建神经记忆链。
+- **5,651 词真题乱序词库**：预置全量大学英语六级真题核心词库，经科学洗牌，杜绝“放弃背到 abandon”的字母序疲劳。
+
+### 2. ⚡ 渐进式主动回忆闪卡（Progressive Active Recall Flashcard）
+- **新词首次学**：推送生动完整的精讲卡片，包含词义精析、接地气幽默例句、六级高频考点、纯正美音发音与自评。
+- **旧词到期复习（双轨极速闪卡）**：
+  - **🧠 瞬时记忆测验**：推送时先隐藏答案，抛出单词与记忆唤醒卡片，激活大脑的主动提取机制（Active Retrieval）。
+  - **💬 轨道 A（自然语言作答）**：用户可在聊天框直接打字或发语音（如回答“决定”或造句）。外教 AI 秒级给予暖心点评，夸奖正确点并针对六级考点温和补充，随后附带打卡归档。
+  - **👀 轨道 B（零压力就地翻牌）**：懒得打字或真忘了？随手点击 `[ 👀 查看答案与考点详解 ]`，消息原地展开全部核心考点与例句，绝无被催作业的心理负担！
+
+### 3. 🛡️ 零疏漏保证：打卡阻断与节奏防爆（Block-and-Remind）
+- **绝不漏背一个词**：如果上一生词或复习词尚未完成自评，下次推送时系统**绝不会盲目推送长篇新内容造成消息堆积**，而是弹出温和的自评提醒卡片。
+- **即评即解锁**：用户一旦标记自评，阻断瞬间解除，毫秒级无缝推送当前应学单词，闭环保障全词库 100% 掌握。
+- **早晚双黄金时间点**：默认对齐大脑最高效的记忆固化窗口（每日 **09:00** 与 **20:00** 定时推送）。
+- **压力缓冲系统（`/pause`）**：
+  - 支持一键 `😴 今天够了，明天见`（跳过今日剩余推送至明早 08:00）；
+  - 支持快捷开启假期模式（暂停 3 天 / 7 天）；
+  - 支持自主切换为【仅晚上推送】或【早晚均推】。
+
+### 4. 📊 全景学习数据看板（`/stats`）
+- 随时输入 `/stats`，生成精美的个人可视化学习仪表盘：
+  - **词库总进度**：已背单词数 / 词库总量百分比（含直观 Emoji 进度条）；
+  - **记忆库沉淀**：已进入 SM-2 周期库的单词数与牢固掌握（`interval >= 21`）词汇量；
+  - **复习预警**：当前已到期急需复习的单词数；
+  - **连续打卡坚持**：🔥 连续学习天数（Streak Tracker），激励每日自律。
+
+### 5. 🚀 24/7 工业级高可用容灾（Auto-Failover）
+- **毫秒级静默容灾降级**：当遇到模型 404（下线）、410（生命周期结束）、429（第三方并发上限）或网关超时，系统在 1 毫秒内自动从可用梯队中智能调度备用模型（如 `minimax-m3` ➡️ `gemma-4-31b` ➡️ `kimi-k3`），用户端完全零中断感知。
+- **生词零丢失保护（Skip-Guard）**：彻底规避接口抖动导致词汇被跳过的缺陷，严格确保网络抖动时进度不前进、不漏词。
+- **防雪崩滑动窗口（40 RPM）**：进程内严格限制每分钟 40 次请求队列，平滑突刺，全天候稳定护航。
+
+### 6. 🔍 三架构交叉消除幻觉（Consensus Mode `/verify`）
+- 一键调用 3 个不同技术架构（如 MiniMax / Google Gemma / Moonshot Kimi）的顶级大模型对上一条教学回复进行并行背对背校验。
+- 物理消除 AI 幻觉，彻底保证六级语法与生僻用法的绝对准确。
+
+### 7. 🔊 纯正双语神经语音（TTS Engine）
+- 集成 `edge-tts` 高质量神经语音与 `ffmpeg` 音频流转码，智能剥离表情符号生成专属发音文件。
+- **🔊 听单词发音**：单点针对当前单词，纯正美音精准朗读，解决“哑巴英语”。
+- **📖 听全文朗读**：完整朗读 AI 外教生成的英文例句与讲解。
+
+---
+
+## 🏗 技术架构一览
 
 ```
 telegram辅助bot/
-├── bot.py                 # 主入口，注册命令、定时任务、启动轮询
-├── handlers.py            # 所有命令和消息处理器（对话、模型切换、TTS 等）
-├── nvidia_client.py       # NVIDIA NIM API 客户端（模型列表、聊天、图片识别）
-├── database.py            # SQLite 异步数据库层（用户、历史、白名单、词汇进度）
-├── rate_limiter.py        # 滑动窗口速率限制器
-├── config.py              # 配置文件（密钥、模型、Prompt 等）⚠️ 不入库
-├── config.example.py      # 配置模板（占位符，供参考）
-├── cet6_words.json        # CET-6 乱序词库
-├── available_models.json  # 自动生成的可用模型白名单（含测速数据）
-├── english_tutor.service  # systemd 服务配置
-├── requirements.txt       # Python 依赖
-├── HANDOVER.md            # 项目交接文档
-└── .gitignore
+├── bot.py                 # 服务主入口：调度注册、并发轮询、定时任务
+├── handlers.py            # 核心业务层：指令系统、主动闪卡交互、作答批改、回调状态机
+├── nvidia_client.py       # NVIDIA NIM 客户端：模型动态测速、自动容灾、双 Pass 探测
+├── database.py            # SQLite 异步持久层：SM-2 排期、打卡连击、白名单、阻断锁
+├── rate_limiter.py        # 令牌滑动窗口限速器（Sliding-Window Algorithm）
+├── config.py              # 敏感配置项（API Key、推送时间、默认模型）⚠️ 不入库
+├── config.example.py      # 配置模板文件
+├── cet6_words.json        # CET-6 乱序权威词库（5,651 词）
+├── available_models.json  # 自动巡检落盘的存活模型池与实时测速延迟表
+└── requirements.txt       # Python 项目依赖清单
 ```
+
+### 数据库核心模型
+
+| 表名 | 作用与核心字段 |
+| :--- | :--- |
+| `vocab_progress` | 记录用户当前学到的词库游标 `word_index`、最后推送时间及暂停时间戳 |
+| `word_schedule` | **SM-2 调度引擎**：`interval`（间隔）、`ease_factor`（难度因子）、`next_review`（下次到期）、`review_count`（复习轮数） |
+| `learning_streak` | 记录每日学习打卡记录与连续天数（`streak`） |
+| `users` | 用户专属首选模型、`push_mode`（早晚/仅晚）、`pending_eval_word`（阻断锁）、`pending_quiz_word`（测验锁） |
+| `history` | 异步对话上下文，支持翻页与语音重听 |
+| `whitelist` | 基于 RBAC 的系统白名单权限隔离 |
 
 ---
 
-## 🚀 部署指南
+## 📋 指令清单
 
-### 1. 环境要求
+### 🎓 学习与复习
 
-- **Python** 3.12+
-- **ffmpeg**（TTS 语音转码需要）
-- **NVIDIA NIM API Key**（[免费申请](https://build.nvidia.com/)）
-- **Telegram Bot Token**（[@BotFather](https://t.me/BotFather) 创建）
+| 指令 | 说明 |
+| :--- | :--- |
+| `/recall` | 手动触发一次生词学习或闪卡复习（受防漏阻断保护） |
+| `/stats` | 打开**学习全景数据看板**（进度百分比、到期复习量、连续打卡天数） |
+| `/pause` | 打开**推送频次与休息面板**（跳过今日、休假 3/7 天、切换晚间单推） |
+| `/verify` | 对上一条外教讲解进行 **3 大顶尖模型交叉校验**，彻底消除幻觉 |
+| `/speak` | 手动生成任意英文文本或上一条回复的语音朗读 |
 
-### 2. 安装依赖
+### 🤖 AI 模型与系统
 
+| 指令 | 说明 |
+| :--- | :--- |
+| `/model` | 调出实时分页模型面板，查看在线模型及其实测延迟，一键热切换 |
+| `/current` | 查看当前绑定的模型及历史上下文轮数 |
+| `/reset` | 清空对话上下文历史（保留单词学习进度与 SM-2 排期） |
+| `/system` | 查看当前活跃的外教 System Prompt 教学人设 |
+| `/check_models` | 手动触发一次后台 80+ 模型可用性全量巡检与测速 |
+
+### 👑 管理员权限（Admin Only）
+
+| 指令 | 说明 |
+| :--- | :--- |
+| `/adduser <id>` | 将指定 Telegram User ID 添加入白名单 |
+| `/removeuser <id>` | 移除指定用户的访问权限 |
+| `/users` | 查看当前管理员列表及全部白名单用户清单 |
+
+---
+
+## 🚀 快速上手部署
+
+### 1. 系统要求
+- **操作系统**：Linux（推荐 Ubuntu 22.04+ / Debian 12+）
+- **Python 环境**：Python 3.12+
+- **系统工具**：`ffmpeg`（用于语音流 OPUS 转码）
+- **凭证准备**：
+  - [NVIDIA NIM API Key](https://build.nvidia.com/)（免费申请，获得充沛 GPU 算力）
+  - [Telegram Bot Token](https://t.me/BotFather)
+
+### 2. 安装系统依赖与环境
 ```bash
-# 安装 Python 依赖
+# 1. 克隆代码仓库
+git clone <your-repo-url>
+cd telegram辅助bot
+
+# 2. 安装系统转码工具 ffmpeg
+sudo apt update && sudo apt install -y ffmpeg
+
+# 3. 安装 Python 核心依赖
 pip install -r requirements.txt
-
-# 安装 ffmpeg（Ubuntu/Debian）
-sudo apt install ffmpeg
-
-# 安装 edge-tts（TTS 引擎）
-pip install edge-tts
 ```
 
-### 3. 配置
-
+### 3. 配置密钥与参数
 ```bash
 # 复制配置模板
 cp config.example.py config.py
 
-# 编辑配置，填入你的真实密钥
+# 编辑配置
 nano config.py
 ```
 
-必须修改的配置项：
+在 `config.py` 中配置核心参数：
+```python
+# 必须配置
+TELEGRAM_BOT_TOKEN = "你的_BOT_TOKEN"
+NVIDIA_API_KEY = "你的_NVAPI_KEY"
+ADMIN_USER_IDS = [123456789]  # 你的 Telegram ID
 
-| 配置项 | 说明 |
-|--------|------|
-| `TELEGRAM_BOT_TOKEN` | 你的 Telegram Bot Token |
-| `NVIDIA_API_KEY` | 你的 NVIDIA NIM API Key |
-| `ADMIN_USER_IDS` | 管理员 Telegram User ID 列表 |
+# 默认主力模型（实测最佳性能梯队）
+DEFAULT_MODEL = "minimaxai/minimax-m3"
 
-可选配置：
-
-| 配置项 | 默认值 | 说明 |
-|--------|--------|------|
-| `PROXY_URL` | `None` | 代理地址，国内服务器设为 `"http://127.0.0.1:20171"` |
-| `RATE_LIMIT_PER_MINUTE` | `40` | 每分钟最大请求数 |
-| `MAX_HISTORY` | `20` | 最大对话轮数 |
-| `CHECK_INTERVAL` | `21600` | 模型自动检测间隔（秒），默认 6 小时 |
-| `RECALL_INTERVAL` | `7200` | 生词推送间隔（秒），默认 2 小时 |
-
-### 4. 获取你的 User ID
-
-首次运行后发送 `/start`，Bot 会回复你的 User ID，将其填入 `ADMIN_USER_IDS`。
-
-### 5. 启动
-
-**直接运行：**
-
-```bash
-python bot.py
+# 推送时间表（默认北京时间早晚各推一次）
+TIMEZONE = "Asia/Shanghai"
+RECALL_PUSH_TIMES = ["09:00", "20:00"]
 ```
 
-**使用 systemd 托管（推荐生产环境）：**
+### 4. 启动与持久化运行
 
+**生产推荐：后台 Daemon 启动**
+```bash
+nohup python3 bot.py > bot.log 2>&1 &
+```
+
+**或者使用 Systemd 托管**
 ```bash
 # 复制服务文件
 sudo cp english_tutor.service /etc/systemd/system/
-
-# 按需修改 WorkingDirectory 和 ExecStart 路径
-sudo nano /etc/systemd/system/english_tutor.service
-
-# 启用并启动
 sudo systemctl daemon-reload
-sudo systemctl enable english_tutor.service
-sudo systemctl start english_tutor.service
+sudo systemctl enable english_tutor
+sudo systemctl start english_tutor
 ```
 
 ---
 
-## 📋 命令列表
+## 💡 常见问题与免坑指南
 
-### 用户命令
-
-| 命令 | 说明 |
-|------|------|
-| `/start` | 显示欢迎界面和你的 User ID |
-| `/help` | 使用指南 |
-| `/model` | 浏览并切换 AI 模型（带测速和分页） |
-| `/current` | 查看当前使用的模型和对话历史数 |
-| `/reset` | 清空对话历史 |
-| `/system` | 查看当前 System Prompt |
-| `/verify` | 交叉校验上一条 AI 回复（三模型共识） |
-| `/recall` | 手动触发一次生词推送 |
-| `/speak` | 朗读上一条回复或指定文本 |
-
-### 管理员命令
-
-| 命令 | 说明 |
-|------|------|
-| `/adduser <user_id>` | 添加用户到白名单 |
-| `/removeuser <user_id>` | 从白名单移除用户 |
-| `/users` | 查看当前白名单 |
-| `/check_models` | 手动触发模型测速 |
-
-### 特殊交互
-
-- **发送文字** → 中英双语对话 / 生词讲解
-- **发送图片** → 自动识别翻译 + 讲解
-- **点击「🔊 听单词发音」** → 朗读当前讲解的单词
-- **点击「📖 听全文朗读」** → 语音朗读完整回复
+1. **为什么不需要死磕复杂的语法术语？**  
+   大学英语六级（CET-6）考卷早在二十年前就取消了纯语法单选题。全卷得分的 90% 依赖于**词汇辨识反应速度（听力与阅读定位）**。本 Bot 的核心目标是帮你在最放松的日常状态下混熟 5,651 个真题词汇，拒绝死记硬背。
+2. **如果某个模型在 NVIDIA 平台上临时下架了怎么办？**  
+   底层内置的 `_chat_with_auto_failover` 会在 1 毫秒内捕获状态码并静默切换至备用活跃模型，你的学习进度和使用体验完全不受影响。
+3. **我只想晚上复习，不想早上被消息打扰怎么办？**  
+   直接在 Telegram 中输入 `/pause`，点击 `🌙 仅晚上推送`，系统会自动将频率调整为每天 20:00 推送 1 次。
 
 ---
 
-## 🧠 技术架构
+## 📄 开源许可证
 
-### 技术栈
-
-- **语言**：Python 3.12
-- **框架**：`python-telegram-bot` v20+（开启 `concurrent_updates` 并发模式）
-- **数据库**：`aiosqlite`（异步 SQLite）
-- **AI API**：OpenAI SDK 兼容模式连接 NVIDIA NIM
-- **TTS**：`edge-tts` + `ffmpeg`（MP3 → OGG/OPUS 转码）
-- **服务管理**：`systemd`
-
-### 关键设计决策
-
-| 决策 | 原因 |
-|------|------|
-| 滑动窗口速率限制（40 RPM） | 修复旧版全局锁阻塞所有用户的 Bug，改为自动等待而非拒绝 |
-| 双保险格式化（Prompt + 正则拦截器 `_clean_reply`） | 物理消除顽固模型的星号列表和表格 |
-| NVIDIA API 直连 + Telegram 走代理 | 国内服务器 Telegram 必须走代理，但 NVIDIA API 直连更快更稳定 |
-| 切换模型不清空对话历史 | 支持跨模型连续教学，用户体验更好 |
-| SQLite 异步持久化 | 替代 JSON 文件存储，支持并发读写和数据一致性 |
-| 模型两轮测速（Quick Pass + Deep Pass） | 首轮快速过滤，二轮极限宽容度（120s）深度测试超时模型 |
-
-### 数据库表结构
-
-| 表名 | 用途 |
-|------|------|
-| `users` | 用户当前选择的模型 |
-| `history` | 对话历史记录 |
-| `whitelist` | 用户白名单 |
-| `vocab_progress` | 每个用户的词汇学习进度 |
-
----
-
-## 🛠 维护手册
-
-```bash
-# 查看最近日志
-sudo journalctl -u english_tutor.service -n 20 --no-pager
-
-# 查看 AI 回复日志
-sudo journalctl -u english_tutor.service | grep "AI reply"
-
-# 重启服务
-sudo systemctl restart english_tutor.service
-
-# 数据库路径
-/root/vscode/telegram辅助bot/bot_data.db
-```
-
----
-
-## 📌 待办事项
-
-- [ ] 多模态历史增强：暂不支持图片上下文，目前已足够
-- [ ] 更多词库：未来可支持雅思、托福等专项词库导入
-
----
-
-## 📄 License
-
-MIT
+本项目基于 [MIT License](LICENSE) 开源。

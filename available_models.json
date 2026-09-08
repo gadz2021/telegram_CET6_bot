@@ -1,298 +1,90 @@
 [
   {
-    "id": "minimaxai/minimax-m2.5",
-    "speed": 2.09
-  },
-  {
-    "id": "minimaxai/minimax-m2.7",
-    "speed": 30.88
-  },
-  {
-    "id": "meta/llama-3.1-70b-instruct",
-    "speed": 4.19
-  },
-  {
-    "id": "meta/llama-3.3-70b-instruct",
-    "speed": 1.16
-  },
-  {
-    "id": "qwen/qwen2.5-coder-32b-instruct",
-    "speed": 1.5
-  },
-  {
-    "id": "mistralai/mistral-large-3-675b-instruct-2512",
-    "speed": 11.38
-  },
-  {
-    "id": "meta/llama-3.1-405b-instruct",
-    "speed": 50.94
-  },
-  {
-    "id": "nvidia/gliner-pii",
-    "speed": 0.32
-  },
-  {
-    "id": "nvidia/llama-3.1-nemoguard-8b-topic-control",
-    "speed": 0.32
-  },
-  {
-    "id": "nvidia/llama-3.1-nemotron-safety-guard-8b-v3",
-    "speed": 0.47
-  },
-  {
-    "id": "openai/gpt-oss-20b",
-    "speed": 0.52
-  },
-  {
-    "id": "openai/gpt-oss-20b",
-    "speed": 0.53
-  },
-  {
-    "id": "nvidia/riva-translate-4b-instruct-v1.1",
-    "speed": 0.55
-  },
-  {
-    "id": "nvidia/nemotron-3-nano-30b-a3b",
-    "speed": 0.56
-  },
-  {
-    "id": "mistralai/mistral-small-4-119b-2603",
-    "speed": 0.69
-  },
-  {
-    "id": "meta/llama-3.2-1b-instruct",
-    "speed": 0.71
-  },
-  {
-    "id": "meta/llama-3.1-8b-instruct",
-    "speed": 0.76
-  },
-  {
-    "id": "openai/gpt-oss-120b",
-    "speed": 0.76
-  },
-  {
-    "id": "nvidia/nemotron-nano-12b-v2-vl",
-    "speed": 0.83
-  },
-  {
-    "id": "openai/gpt-oss-120b",
-    "speed": 0.86
-  },
-  {
-    "id": "mistralai/mixtral-8x22b-instruct-v0.1",
-    "speed": 0.98
-  },
-  {
-    "id": "meta/llama-guard-4-12b",
-    "speed": 1.06
-  },
-  {
-    "id": "nvidia/nemotron-3-content-safety",
-    "speed": 1.08
-  },
-  {
-    "id": "google/gemma-2-2b-it",
-    "speed": 1.1
-  },
-  {
-    "id": "qwen/qwen3-next-80b-a3b-instruct",
-    "speed": 1.17
-  },
-  {
-    "id": "microsoft/phi-4-mini-instruct",
-    "speed": 1.22
-  },
-  {
-    "id": "moonshotai/kimi-k2-instruct",
-    "speed": 1.24
-  },
-  {
-    "id": "microsoft/phi-4-multimodal-instruct",
-    "speed": 1.32
-  },
-  {
-    "id": "nvidia/nemotron-mini-4b-instruct",
-    "speed": 1.32
-  },
-  {
-    "id": "nvidia/llama-3.1-nemotron-nano-8b-v1",
-    "speed": 1.36
-  },
-  {
-    "id": "meta/llama-3.2-3b-instruct",
-    "speed": 1.37
-  },
-  {
-    "id": "mistralai/ministral-14b-instruct-2512",
-    "speed": 1.5
-  },
-  {
-    "id": "moonshotai/kimi-k2-instruct-0905",
-    "speed": 1.63
-  },
-  {
-    "id": "qwen/qwen3-coder-480b-a35b-instruct",
-    "speed": 1.64
-  },
-  {
-    "id": "nvidia/nemotron-content-safety-reasoning-4b",
-    "speed": 1.67
-  },
-  {
-    "id": "qwen/qwen3-next-80b-a3b-thinking",
-    "speed": 1.68
-  },
-  {
-    "id": "mistralai/devstral-2-123b-instruct-2512",
-    "speed": 1.69
+    "id": "minimaxai/minimax-m3",
+    "speed": 3.95
   },
   {
     "id": "google/gemma-4-31b-it",
-    "speed": 1.81
+    "speed": 39.88
   },
   {
-    "id": "mistralai/mixtral-8x7b-instruct-v0.1",
-    "speed": 1.84
+    "id": "openai/gpt-oss-20b",
+    "speed": 3.34
   },
   {
-    "id": "meta/llama-3.2-11b-vision-instruct",
-    "speed": 1.85
-  },
-  {
-    "id": "google/gemma-3-27b-it",
-    "speed": 1.91
-  },
-  {
-    "id": "nvidia/ising-calibration-1-35b-a3b",
-    "speed": 1.98
-  },
-  {
-    "id": "meta/llama-4-maverick-17b-128e-instruct",
-    "speed": 2.16
-  },
-  {
-    "id": "mistralai/mistral-nemotron",
-    "speed": 2.18
-  },
-  {
-    "id": "stepfun-ai/step-3.5-flash",
-    "speed": 2.45
-  },
-  {
-    "id": "moonshotai/kimi-k2.5",
-    "speed": 2.52
-  },
-  {
-    "id": "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
-    "speed": 2.62
-  },
-  {
-    "id": "upstage/solar-10.7b-instruct",
-    "speed": 2.98
-  },
-  {
-    "id": "nvidia/nvidia-nemotron-nano-9b-v2",
-    "speed": 3.04
-  },
-  {
-    "id": "sarvamai/sarvam-m",
-    "speed": 3.54
-  },
-  {
-    "id": "bytedance/seed-oss-36b-instruct",
-    "speed": 3.77
-  },
-  {
-    "id": "stockmark/stockmark-2-100b-instruct",
-    "speed": 4.11
-  },
-  {
-    "id": "mistralai/magistral-small-2506",
-    "speed": 4.19
-  },
-  {
-    "id": "nvidia/llama-3.3-nemotron-super-49b-v1",
-    "speed": 4.19
-  },
-  {
-    "id": "google/gemma-3n-e2b-it",
-    "speed": 4.73
-  },
-  {
-    "id": "google/gemma-3n-e4b-it",
-    "speed": 5.92
-  },
-  {
-    "id": "nvidia/nemotron-3-super-120b-a12b",
-    "speed": 6.73
-  },
-  {
-    "id": "google/gemma-3-4b-it",
-    "speed": 7.04
-  },
-  {
-    "id": "abacusai/dracarys-llama-3.1-70b-instruct",
-    "speed": 7.73
-  },
-  {
-    "id": "meta/llama-3.2-90b-vision-instruct",
-    "speed": 8.83
+    "id": "nvidia/nemotron-3.5-content-safety",
+    "speed": 0.28
   },
   {
     "id": "nvidia/llama-3.1-nemoguard-8b-content-safety",
-    "speed": 13.03
+    "speed": 0.37
   },
   {
-    "id": "z-ai/glm-5.1",
-    "speed": 13.74
+    "id": "nvidia/llama-3.1-nemotron-safety-guard-8b-v3",
+    "speed": 0.49
   },
   {
-    "id": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-    "speed": 15.39
+    "id": "nvidia/riva-translate-4b-instruct-v2",
+    "speed": 0.52
+  },
+  {
+    "id": "nvidia/riva-translate-4b-instruct-v1.1",
+    "speed": 0.54
+  },
+  {
+    "id": "poolside/laguna-xs-2.1",
+    "speed": 1.08
+  },
+  {
+    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "speed": 2.24
+  },
+  {
+    "id": "google/diffusiongemma-26b-a4b-it",
+    "speed": 3.0
+  },
+  {
+    "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    "speed": 3.27
   },
   {
     "id": "nvidia/nemotron-3-super-120b-a12b",
-    "speed": 17.76
+    "speed": 4.04
   },
   {
-    "id": "deepseek-ai/deepseek-v4-pro",
-    "speed": 25.1
+    "id": "meta/llama-3.2-11b-vision-instruct",
+    "speed": 4.19
   },
   {
-    "id": "qwen/qwen3.5-122b-a10b",
-    "speed": 39.52
+    "id": "meta/muse-glimmer-30b",
+    "speed": 6.53
   },
   {
-    "id": "moonshotai/kimi-k2-thinking",
-    "speed": 50.74
+    "id": "nvidia/ising-calibration-1.5-31b",
+    "speed": 23.75
   },
   {
-    "id": "z-ai/glm4.7",
-    "speed": 109.81
+    "id": "mistralai/mistral-nemotron",
+    "speed": 41.42
   },
   {
-    "id": "z-ai/glm5",
-    "speed": 166.99
+    "id": "nvidia/nemotron-3-ultra-550b-a55b",
+    "speed": 44.55
   },
   {
-    "id": "qwen/qwen3.5-397b-a17b",
-    "speed": 233.16
-  },
-  {
-    "id": "deepseek-ai/deepseek-v3.1-terminus",
-    "speed": 259.61
-  },
-  {
-    "id": "deepseek-ai/deepseek-v3.2",
+    "id": "deepseek-ai/deepseek-v4-flash-0731",
     "speed": 999
   },
   {
-    "id": "deepseek-ai/deepseek-v4-flash",
+    "id": "deepseek-ai/deepseek-v4-pro-0813",
     "speed": 999
   },
   {
-    "id": "mistralai/mistral-medium-3-instruct",
+    "id": "meta/llama-3.2-90b-vision-instruct",
+    "speed": 999
+  },
+  {
+    "id": "meta/llama-guard-4-12b",
     "speed": 999
   }
 ]

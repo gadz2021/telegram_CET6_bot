@@ -6,26 +6,28 @@ TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
 # ====== NVIDIA NIM API ======
 NVIDIA_API_KEY = "YOUR_NVIDIA_API_KEY"
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
-DEFAULT_MODEL = "meta/llama-3.1-70b-instruct"
-VISION_MODEL = "meta/llama-3.2-90b-vision-instruct"
+DEFAULT_MODEL = "minimaxai/minimax-m3"
+VISION_MODEL = "meta/llama-3.2-11b-vision-instruct"
 AVAILABLE_MODELS_FILE = "available_models.json"
-CHECK_INTERVAL = 21600
-RECALL_INTERVAL = 14400
+CHECK_INTERVAL = 21600  # 6 小时
+RECALL_INTERVAL = 7200  # 兼容保留
+TIMEZONE = "Asia/Shanghai"  # 默认北京时间
+RECALL_PUSH_TIMES = ["09:00", "20:00"]  # 每日定时推送时间点 (24小时制 HH:MM)
 VOCAB_FILE = "cet6_words.json"
 TEST_PROMPT = "请简短地用英语讲解一个医院急救室相关的词汇，并附带中文翻译。"
 RECOMMENDED_MODELS = [
-    "minimaxai/minimax-m2.5",
-    "minimaxai/minimax-m2.7",
-    "meta/llama-3.1-70b-instruct",
-    "meta/llama-3.3-70b-instruct",
-    "qwen/qwen2.5-coder-32b-instruct",
-    "mistralai/mistral-large-3-675b-instruct-2512",
-    "meta/llama-3.1-405b-instruct",
+    "minimaxai/minimax-m3",
+    "google/gemma-4-31b-it",
+    "moonshotai/kimi-k3",
+    "moonshotai/kimi-k2.6",
+    "nvidia/llama-3.1-nemotron-70b-instruct",
+    "openai/gpt-oss-20b",
+    "mistralai/mistral-large-2-instruct",
 ]
 VERIFY_MODELS = [
-    "meta/llama-3.3-70b-instruct",
-    "qwen/qwen2.5-coder-32b-instruct",
-    "mistralai/mistral-large-3-675b-instruct-2512",
+    "minimaxai/minimax-m3",
+    "google/gemma-4-31b-it",
+    "moonshotai/kimi-k3",
 ]
 
 # ====== 代理 ======

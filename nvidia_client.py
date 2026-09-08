@@ -9,7 +9,7 @@ import os
 import httpx
 from openai import AsyncOpenAI
 
-from config import NVIDIA_API_KEY, NVIDIA_BASE_URL, PROXY_URL, REQUEST_TIMEOUT, AVAILABLE_MODELS_FILE, DEFAULT_MODEL, RECOMMENDED_MODELS, TEST_PROMPT
+from config import NVIDIA_API_KEY, NVIDIA_BASE_URL, PROXY_URL, REQUEST_TIMEOUT, AVAILABLE_MODELS_FILE, DEFAULT_MODEL, RECOMMENDED_MODELS, VERIFY_MODELS, TEST_PROMPT
 from rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
@@ -74,6 +74,61 @@ class NvidiaClient:
         # 兜底返回默认模型
         return [{"id": DEFAULT_MODEL, "speed": 0}]
 
+    _EXCLUDE_CHAT_KEYWORDS = (
+        "guard", "pii", "embed", "reward", "rerank", "deplot", "ocr", "fuyu", "clip",
+        "safety", "translate", "calibration", "gliner", "tts", "asr", "whisper",
+        "embedding", "moderation", "vl-", "vision", "muse", "glimmer", "synthetic",
+        "detector", "cosmos", "neva", "vila", "nvclip"
+    )
+
+    @classmethod
+    def is_chat_model(cls, model_id: str) -> bool:
+        mid = model_id.lower()
+        return not any(kw in mid for kw in cls._EXCLUDE_CHAT_KEYWORDS)
+
+    async def get_default_model(self) -> str:
+        """获取当前最推荐且存活的默认模型：优先选存活的 RECOMMENDED_MODELS，其次选速度最快的通用模型。"""
+        models = await self.fetch_models()
+        chat_models = [m["id"] for m in models if self.is_chat_model(m["id"])]
+        
+        # 1. 优先从 RECOMMENDED_MODELS 中挑选当前确认存活的模型
+        for rec in RECOMMENDED_MODELS:
+            if rec in chat_models:
+                return rec
+                
+        # 2. 如果推荐模型均下线，从其他存活且适合对话的模型中取第一个（最快的）
+        if chat_models:
+            return chat_models[0]
+            
+        return DEFAULT_MODEL
+
+    async def is_model_available(self, model: str) -> bool:
+        """检查模型是否在本地可用列表中"""
+        models = await self.fetch_models()
+        if not models or (len(models) == 1 and models[0]["id"] == DEFAULT_MODEL):
+            return True  # 尚未检测过或仅有默认兜底时，不做强行拦截
+        return any(m["id"] == model for m in models)
+
+    async def get_verify_models(self, exclude: str = "") -> list[str]:
+        """动态获取 2~3 个存活的优质模型供 /verify 交叉校验使用"""
+        models = await self.fetch_models()
+        available_ids = [m["id"] for m in models if self.is_chat_model(m["id"])]
+
+        candidates = []
+        # 1. 优先使用 VERIFY_MODELS 中仍然可用的模型
+        for vm in VERIFY_MODELS:
+            if vm in available_ids and vm != exclude and vm not in candidates:
+                candidates.append(vm)
+
+        # 2. 如果不足 3 个，从速度最快且存活的列表中补充
+        for m in available_ids:
+            if len(candidates) >= 3:
+                break
+            if m != exclude and m not in candidates:
+                candidates.append(m)
+
+        return candidates if candidates else [DEFAULT_MODEL]
+
     async def check_available_models(self) -> list[dict]:
         """主动测试所有模型，过滤出可用列表、测速并保存。"""
         logger.info("Started checking and speed-testing all models...")
@@ -109,7 +164,7 @@ class NvidiaClient:
                     logger.info("⚠️ Model %s timed out in pass 1, marking for pass 2.", model)
                     available_models.append({"id": model, "speed": 999})
             
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(1.5)
 
         # 第二轮：深度测速 (Deep Pass)
         pending_models = [m for m in available_models if m["speed"] == 999]
@@ -264,8 +319,8 @@ class NvidiaClient:
     def _friendly_error(error_msg: str, model: str) -> str:
         """把 API 异常转为用户友好的中文提示。"""
         low = error_msg.lower()
-        if "404" in error_msg:
-            return f"❌ 模型 `{model}` 不存在或不支持聊天，请用 /model 切换。"
+        if "404" in error_msg or "410" in error_msg or "end of life" in low or "no longer available" in low or "gone" in low:
+            return f"❌ 模型 `{model}` 已下线不可用（410/404），请用 /model 切换。"
         if "429" in error_msg or "rate" in low:
             return "⏳ API 限流，请稍等几秒后重试。"
         if "timeout" in low or "timed out" in low:

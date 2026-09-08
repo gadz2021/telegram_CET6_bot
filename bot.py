@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Telegram 英语外教 Bot — 主入口
 
-使用 NVIDIA NIM API 驱动，支持 60+ 模型动态切换。
+使用 NVIDIA NIM API 驱动，支持 70+ 模型动态切换，内置 SM-2 遗忘曲线间隔复习。
 """
 
 import logging
 import os
 import sys
+from datetime import time
+from zoneinfo import ZoneInfo
 
 # ------------------------------------------------------------------
 # 代理设置（必须在所有网络库之前设置）
@@ -29,7 +31,13 @@ from telegram.ext import (
     filters,
 )
 
-from config import TELEGRAM_BOT_TOKEN, RATE_LIMIT_PER_MINUTE, CHECK_INTERVAL, RECALL_INTERVAL
+from config import (
+    TELEGRAM_BOT_TOKEN,
+    RATE_LIMIT_PER_MINUTE,
+    CHECK_INTERVAL,
+    TIMEZONE,
+    RECALL_PUSH_TIMES,
+)
 from rate_limiter import RateLimiter
 from nvidia_client import NvidiaClient
 from handlers import (
@@ -47,9 +55,13 @@ from handlers import (
     cmd_recall,
     cmd_pause,
     cmd_speak,
+    cmd_stats,
     active_recall_job,
     callback_model,
     callback_tts,
+    callback_review_grade,
+    callback_reveal_quiz,
+    callback_pause,
     handle_message,
     handle_photo,
 )
@@ -69,7 +81,7 @@ async def on_startup(application):
     """Bot 启动时的初始化任务"""
     from database import init_db, migrate_json_whitelist
     from config import WHITELIST_FILE
-    
+
     logger.info("Initializing database...")
     await init_db()
     await migrate_json_whitelist(WHITELIST_FILE)
@@ -90,7 +102,6 @@ def main():
     builder.post_init(on_startup)
     builder.concurrent_updates(True)
 
-    # PTB v20+ 通过 httpx 使用环境变量中的代理，无需额外配置
     application = builder.build()
 
     # 把 nvidia 客户端存入 bot_data，供 handler 使用
@@ -99,6 +110,7 @@ def main():
     # 注册命令处理器
     application.add_handler(CommandHandler("start", cmd_start))
     application.add_handler(CommandHandler("help", cmd_help))
+    application.add_handler(CommandHandler("stats", cmd_stats))
     application.add_handler(CommandHandler("model", cmd_model))
     application.add_handler(CommandHandler("current", cmd_current))
     application.add_handler(CommandHandler("reset", cmd_reset))
@@ -112,7 +124,7 @@ def main():
     application.add_handler(CommandHandler("pause", cmd_pause))
     application.add_handler(CommandHandler("speak", cmd_speak))
 
-    # 配置后台定时任务：每 24 小时 (86400秒) 执行一次检测
+    # 后台定时任务：模型检测
     async def run_daily_check(context):
         logger.info("Running daily background model check...")
         try:
@@ -121,29 +133,52 @@ def main():
             logger.error("Daily background check failed: %s", e)
 
     if application.job_queue:
-        application.job_queue.run_repeating(run_daily_check, interval=CHECK_INTERVAL, first=60)
-        # 修复：不再在启动 30 秒后立即推送，而是等待一个完整周期
-        application.job_queue.run_repeating(active_recall_job, interval=RECALL_INTERVAL, first=RECALL_INTERVAL)
-        logger.info("Job queue enabled: model check every %ds, recall every %ds", CHECK_INTERVAL, RECALL_INTERVAL)
+        application.job_queue.run_repeating(run_daily_check, interval=CHECK_INTERVAL, first=10)
+
+        # 方案B：每日定时推送 (根据 TIMEZONE 与 RECALL_PUSH_TIMES)
+        try:
+            tz = ZoneInfo(TIMEZONE)
+        except Exception as e:
+            logger.warning("ZoneInfo %s failed (%s), fallback to local tz", TIMEZONE, e)
+            tz = None
+
+        # 09:00 晨间推送
+        application.job_queue.run_daily(
+            active_recall_job,
+            time=time(hour=9, minute=0, tzinfo=tz),
+            data={"slot": "morning"},
+            name="recall_morning",
+        )
+        # 20:00 晚间推送
+        application.job_queue.run_daily(
+            active_recall_job,
+            time=time(hour=20, minute=0, tzinfo=tz),
+            data={"slot": "evening"},
+            name="recall_evening",
+        )
+        logger.info("Job queue configured: model check every %ds, daily recall at %s (%s)",
+                    CHECK_INTERVAL, RECALL_PUSH_TIMES, TIMEZONE)
     else:
         logger.warning("Job queue is None! Install APScheduler: pip install APScheduler")
 
-    # 注册回调处理器（模型选择的 inline keyboard）
+    # 注册回调处理器
     application.add_handler(CallbackQueryHandler(callback_model, pattern="^(ms:|mp:|noop)"))
     application.add_handler(CallbackQueryHandler(callback_tts, pattern="^tts_"))
+    application.add_handler(CallbackQueryHandler(callback_review_grade, pattern="^rg"))
+    application.add_handler(CallbackQueryHandler(callback_reveal_quiz, pattern="^reveal:"))
+    application.add_handler(CallbackQueryHandler(callback_pause, pattern="^pause_opt:"))
 
     # 注册图片处理器
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
-    # 注册普通文本消息处理器（放在最后，作为 fallback）
+    # 注册普通文本消息处理器
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
     )
 
-    # 启动轮询
     logger.info("Bot is running! Press Ctrl+C to stop.")
     application.run_polling(
-        drop_pending_updates=True,  # 忽略离线期间的消息
+        drop_pending_updates=True,
         allowed_updates=["message", "callback_query"],
     )
 
