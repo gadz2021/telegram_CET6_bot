@@ -551,3 +551,18 @@ async def populate_word_cache_from_history():
         if count > 0:
             logger.info("Migrated %d word explanations into word_cache.", count)
 
+
+async def get_word_schedule_info(user_id: int, word: str) -> dict:
+    """获取单词的复习状态信息（间隔与连续打卡天数）"""
+    word = word.lower().strip()
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT interval, ease_factor, review_count FROM word_schedule WHERE user_id = ? AND word = ?", (user_id, word)) as cursor:
+            row = await cursor.fetchone()
+            interval = row[0] if row else 1
+            ease = row[1] if row else 2.5
+            rc = row[2] if row else 0
+        async with db.execute("SELECT streak FROM learning_streak WHERE user_id = ?", (user_id,)) as cursor:
+            s_row = await cursor.fetchone()
+            streak = s_row[0] if s_row else 1
+    return {"interval": interval, "ease_factor": ease, "review_count": rc, "streak": streak}
+

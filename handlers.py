@@ -839,6 +839,31 @@ async def callback_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
 
+def _format_word_translations(word: str) -> str:
+    """从本地词典快速获取结构化简明释义（0 毫秒零调用）"""
+    if not os.path.exists(VOCAB_FILE):
+        return "暂无释义"
+    try:
+        with open(VOCAB_FILE, "r", encoding="utf-8") as f:
+            vocab = json.load(f)
+        item = next((v for v in vocab if v["word"].lower() == word.lower()), None)
+        if not item or not item.get("translations"):
+            return "暂无释义"
+        parts = []
+        for t in item["translations"]:
+            t_type = t.get("type", "").strip()
+            t_val = t.get("translation", "").strip()
+            if t_type and not t_type.endswith("."):
+                t_type += "."
+            if t_type:
+                parts.append(f"[{t_type}] {t_val}")
+            else:
+                parts.append(t_val)
+        return "；".join(parts) if parts else "暂无释义"
+    except Exception:
+        return "暂无释义"
+
+
 # ======================================================================
 # 回调：SM-2 遗忘曲线自评打卡
 # ======================================================================
@@ -882,39 +907,69 @@ async def callback_review_grade(update: Update, context: ContextTypes.DEFAULT_TY
         alert_text = f"已补评【{grade_desc}】！\n正在为你解锁下一个单词～🐾"
     else:
         alert_text = f"已打卡【{grade_desc}】！\n下次复习间隔：{interval} 天后 🐾\n连续学习：{streak} 天"
-    await query.answer(alert_text, show_alert=True)
+    await query.answer(alert_text, show_alert=False)
 
-    # 修改当前消息的按键，锁定自评结果，防止重复点击
-    if query.message and query.message.reply_markup:
-        old_kb = query.message.reply_markup.inline_keyboard
-        new_kb_rows = []
-        for row in old_kb:
-            # 如果是自评那一行 (包含 rg: 或 rgr:)，替换为状态展示
-            if any(btn.callback_data and (btn.callback_data.startswith("rg:") or btn.callback_data.startswith("rgr:")) for btn in row):
-                new_kb_rows.append([
-                    InlineKeyboardButton(f"✅ 已记录 ({interval}天后复习 | 🔥连续{streak}天)", callback_data="noop")
-                ])
-            # 如果存在翻牌按钮，在用户明确已自评后移除翻牌按键
-            elif any(btn.callback_data and btn.callback_data.startswith("reveal:") for btn in row):
-                filtered_row = [btn for btn in row if not (btn.callback_data and btn.callback_data.startswith("reveal:"))]
-                if filtered_row:
-                    new_kb_rows.append(filtered_row)
-            else:
-                new_kb_rows.append(row)
+    # 判断当前消息是否来自复习卡片（闪卡问答）
+    is_quiz_card = False
+    if query.message and query.message.text:
+        is_quiz_card = "Active Recall: 单词复习" in query.message.text or "考考你的瞬时记忆" in query.message.text
 
-        # 痛点一：打卡完成后追加「➡️ 下一词」按钮，无需用户每次手动打字发 /recall
-        new_kb_rows.append([
-            InlineKeyboardButton("➡️ 下一词", callback_data="recall_next")
-        ])
-
+    if is_quiz_card:
+        # 方案 A：两段式速览 —— 点击后就地给出简明释义加深印象，并附带「📖 展开考点详解」与「➡️ 下一词」
+        trans_str = _format_word_translations(word)
+        status_icon = "✅" if grade == "good" else ("🤔" if grade == "fuzzy" else "❌")
+        confirm_text = (
+            f"🔁 *Active Recall: 单词复习完成*\n\n"
+            f"🎯 *`{word}`*\n"
+            f"📚 **简明释义**：{trans_str}\n\n"
+            f"{status_icon} *已标记为【{grade_desc}】*（{interval}天后复习 | 🔥连续{streak}天）"
+        )
+        new_buttons = [
+            [
+                InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{word}"),
+                InlineKeyboardButton("📖 展开考点详解", callback_data=f"detail:{word}"),
+            ],
+            [
+                InlineKeyboardButton("➡️ 下一词", callback_data="recall_next"),
+            ]
+        ]
         try:
-            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(new_kb_rows))
+            await query.edit_message_text(text=confirm_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(new_buttons))
         except Exception:
-            pass
+            await query.message.reply_text(text=confirm_text, parse_mode=None, reply_markup=InlineKeyboardMarkup(new_buttons))
+    else:
+        # 新词学习或提醒卡片：保持原正文，修改当前消息的按键，锁定自评结果，防止重复点击
+        if query.message and query.message.reply_markup:
+            old_kb = query.message.reply_markup.inline_keyboard
+            new_kb_rows = []
+            for row in old_kb:
+                # 如果是自评那一行 (包含 rg: 或 rgr:)，替换为状态展示
+                if any(btn.callback_data and (btn.callback_data.startswith("rg:") or btn.callback_data.startswith("rgr:")) for btn in row):
+                    new_kb_rows.append([
+                        InlineKeyboardButton(f"✅ 已记录 ({interval}天后复习 | 🔥连续{streak}天)", callback_data="noop")
+                    ])
+                # 如果存在翻牌按钮，在用户明确已自评后移除翻牌按键
+                elif any(btn.callback_data and btn.callback_data.startswith("reveal:") for btn in row):
+                    filtered_row = [btn for btn in row if not (btn.callback_data and btn.callback_data.startswith("reveal:"))]
+                    if filtered_row:
+                        new_kb_rows.append(filtered_row)
+                else:
+                    new_kb_rows.append(row)
+
+            # 痛点一：打卡完成后追加「➡️ 下一词」按钮，无需用户每次手动打字发 /recall
+            new_kb_rows.append([
+                InlineKeyboardButton("➡️ 下一词", callback_data="recall_next")
+            ])
+
+            try:
+                await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(new_kb_rows))
+            except Exception:
+                pass
 
     # 如果是从打卡阻断提醒完成评级，评完后立即推送当前应学单词
     if is_from_reminder:
         await _send_recall_content(context, uid=uid, chat_id=query.message.chat_id, is_scheduled=False)
+
 
 
 # ======================================================================
@@ -984,6 +1039,51 @@ async def callback_recall_next(update: Update, context: ContextTypes.DEFAULT_TYP
 
     await query.answer("正在为你准备下一个单词...")
     await _send_recall_content(context, uid=uid, chat_id=query.message.chat_id, is_scheduled=False)
+
+
+# ======================================================================
+# Callback: 展开考点详解 (方案A两段式，保留已打卡状态)
+# ======================================================================
+async def callback_detail_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """用户自评记住了/模糊后，点击「📖 展开考点详解」展示完整例句与考点"""
+    query = update.callback_query
+    data = query.data
+    uid = query.from_user.id
+
+    if not await _check_user(uid):
+        await query.answer("无权限", show_alert=True)
+        return
+
+    word = data.replace("detail:", "").strip()
+    await query.answer("正在展开详细考点与例句...")
+
+    info = await database.get_word_schedule_info(uid, word)
+    interval = info["interval"]
+    streak = info["streak"]
+
+    nvidia: NvidiaClient = context.bot_data["nvidia"]
+    explanation = await _get_or_generate_word_explanation(nvidia, uid, word)
+
+    full_text = f"📖 *Active Recall: 核心考点与释义 — `{word}`*\n\n" + explanation
+    history_id = await database.add_history(uid, "assistant", full_text)
+
+    buttons = [
+        [
+            InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{word}"),
+            InlineKeyboardButton("📖 听全文朗读", callback_data=f"tts_id:{history_id}"),
+        ],
+        [
+            InlineKeyboardButton(f"✅ 已记牢 ({interval}天后复习 | 🔥连续{streak}天)", callback_data="noop"),
+        ],
+        [
+            InlineKeyboardButton("➡️ 下一词", callback_data="recall_next"),
+        ]
+    ]
+
+    try:
+        await query.edit_message_text(text=full_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception:
+        await query.message.reply_text(text=full_text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 

@@ -62,6 +62,7 @@ from handlers import (
     callback_review_grade,
     callback_reveal_quiz,
     callback_recall_next,
+    callback_detail_quiz,
     callback_pause,
     handle_message,
     handle_photo,
@@ -170,6 +171,7 @@ def main():
     application.add_handler(CallbackQueryHandler(callback_review_grade, pattern="^rg"))
     application.add_handler(CallbackQueryHandler(callback_reveal_quiz, pattern="^reveal:"))
     application.add_handler(CallbackQueryHandler(callback_recall_next, pattern="^recall_next"))
+    application.add_handler(CallbackQueryHandler(callback_detail_quiz, pattern="^detail:"))
     application.add_handler(CallbackQueryHandler(callback_pause, pattern="^pause_opt:"))
 
     # 注册图片处理器
