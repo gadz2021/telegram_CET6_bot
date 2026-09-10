@@ -62,6 +62,14 @@ async def init_db():
                 streak INTEGER DEFAULT 0
             )
         """)
+        # 单词考点与释义持久化缓存表 (用于秒级翻牌)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS word_cache (
+                word TEXT PRIMARY KEY,
+                explanation TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         await db.commit()
 
         # 数据库迁移：为旧表补充列
@@ -493,3 +501,53 @@ async def reset_vocab_progress_all():
         await db.execute("UPDATE users SET pending_eval_word = NULL, pending_quiz_word = NULL")
         await db.commit()
     logger.info("All vocab progress, schedules, and pending words have been reset.")
+
+
+# ----------------------------------------------------------------------
+# 单词考点与释义持久化缓存 (秒级翻牌)
+# ----------------------------------------------------------------------
+async def get_word_cache(word: str) -> str | None:
+    """获取单词的缓存讲解内容"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT explanation FROM word_cache WHERE word = ?", (word.lower().strip(),)) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
+
+async def set_word_cache(word: str, explanation: str):
+    """保存或更新单词的讲解内容缓存"""
+    if not word or not explanation:
+        return
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            INSERT INTO word_cache (word, explanation, created_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(word) DO UPDATE SET explanation = excluded.explanation, created_at = CURRENT_TIMESTAMP
+        """, (word.lower().strip(), explanation))
+        await db.commit()
+
+
+async def populate_word_cache_from_history():
+    """启动时从历史记录回填 word_cache，确保已有词汇可秒级翻牌"""
+    import re
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT content FROM history WHERE role = 'assistant'") as cursor:
+            rows = await cursor.fetchall()
+        count = 0
+        for (content,) in rows:
+            if not content:
+                continue
+            m = re.search(r"Active Recall:[^—\n]*—\s*`([a-zA-Z\-]+)`\*\s*\n\n([\s\S]+)$", content)
+            if m:
+                word = m.group(1).lower().strip()
+                body = m.group(2).strip()
+                if "📖" in body and not (body.startswith("❌") or body.startswith("⏳") or body.startswith("⚠️")):
+                    await db.execute("""
+                        INSERT OR IGNORE INTO word_cache (word, explanation)
+                        VALUES (?, ?)
+                    """, (word, body))
+                    count += 1
+        await db.commit()
+        if count > 0:
+            logger.info("Migrated %d word explanations into word_cache.", count)
+

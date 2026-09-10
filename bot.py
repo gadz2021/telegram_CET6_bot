@@ -61,6 +61,7 @@ from handlers import (
     callback_tts,
     callback_review_grade,
     callback_reveal_quiz,
+    callback_recall_next,
     callback_pause,
     handle_message,
     handle_photo,
@@ -79,13 +80,15 @@ logger = logging.getLogger(__name__)
 
 async def on_startup(application):
     """Bot 启动时的初始化任务"""
-    from database import init_db, migrate_json_whitelist
+    from database import init_db, migrate_json_whitelist, populate_word_cache_from_history
     from config import WHITELIST_FILE
 
     logger.info("Initializing database...")
     await init_db()
     await migrate_json_whitelist(WHITELIST_FILE)
+    await populate_word_cache_from_history()
     logger.info("Database ready.")
+
 
 
 def main():
@@ -166,6 +169,7 @@ def main():
     application.add_handler(CallbackQueryHandler(callback_tts, pattern="^tts_"))
     application.add_handler(CallbackQueryHandler(callback_review_grade, pattern="^rg"))
     application.add_handler(CallbackQueryHandler(callback_reveal_quiz, pattern="^reveal:"))
+    application.add_handler(CallbackQueryHandler(callback_recall_next, pattern="^recall_next"))
     application.add_handler(CallbackQueryHandler(callback_pause, pattern="^pause_opt:"))
 
     # 注册图片处理器
