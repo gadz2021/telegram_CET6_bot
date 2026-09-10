@@ -495,192 +495,211 @@ async def _get_or_generate_word_explanation(nvidia: NvidiaClient, uid: int, word
     return clean_body
 
 
-async def _send_recall_content(context: ContextTypes.DEFAULT_TYPE, uid: int, chat_id: int, is_scheduled: bool = False):
-    """统一的词汇推送逻辑：优先检查到期复习词，若无则推新词。"""
-    if not os.path.exists(VOCAB_FILE):
-        await context.bot.send_message(chat_id=chat_id, text="❌ 词库文件不存在。")
-        return
+_user_recall_locks: dict[int, asyncio.Lock] = {}
 
-    with open(VOCAB_FILE, "r", encoding="utf-8") as f:
-        vocab = json.load(f)
 
-    nvidia: NvidiaClient = context.bot_data["nvidia"]
+def _get_user_recall_lock(uid: int) -> asyncio.Lock:
+    """获取指定用户的专属推送互斥锁，杜绝连击与并发竞态导致重复推送相同单词"""
+    if uid not in _user_recall_locks:
+        _user_recall_locks[uid] = asyncio.Lock()
+    return _user_recall_locks[uid]
 
-    # 0. 方案B（打卡阻断法）：检查是否有上一生词尚未自评
-    pending_word = await database.get_pending_eval_word(uid)
-    if pending_word:
-        logger.info("User %d has pending evaluation word '%s', blocking next push.", uid, pending_word)
-        remind_buttons = [
-            [
-                InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{pending_word}"),
-            ],
-            [
-                InlineKeyboardButton("✅ 记住了", callback_data=f"rgr:{pending_word}:good"),
-                InlineKeyboardButton("🤔 模糊", callback_data=f"rgr:{pending_word}:fuzzy"),
-                InlineKeyboardButton("❌ 忘了", callback_data=f"rgr:{pending_word}:forgot"),
-            ],
-        ]
-        if is_scheduled:
-            remind_buttons.append([
-                InlineKeyboardButton("😴 今天够了，明天见", callback_data="pause_opt:today")
-            ])
 
-        remind_text = (
-            f"🔔 *Active Recall 自评打卡提醒*\n\n"
-            f"上一生词 *`{pending_word}`* 还没有完成自评噢～\n\n"
-            f"请先在下方标记你的掌握程度，完成后将**立即为你解锁下一个单词**："
-        )
-        try:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=remind_text,
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(remind_buttons)
+async def _send_recall_content(context: ContextTypes.DEFAULT_TYPE, uid: int, chat_id: int, is_scheduled: bool = False) -> bool:
+    """统一的词汇推送逻辑：优先检查到期复习词，若无则推新词。
+    使用用户级互斥锁避免并发触发导致重复推送相同单词。
+    """
+    user_lock = _get_user_recall_lock(uid)
+    if user_lock.locked():
+        logger.warning("Recall content generation already in progress for user %d, rejecting concurrent call.", uid)
+        return False
+
+    async with user_lock:
+        if not os.path.exists(VOCAB_FILE):
+            await context.bot.send_message(chat_id=chat_id, text="❌ 词库文件不存在。")
+            return False
+
+        with open(VOCAB_FILE, "r", encoding="utf-8") as f:
+            vocab = json.load(f)
+
+        nvidia: NvidiaClient = context.bot_data["nvidia"]
+
+        # 0. 方案B（打卡阻断法）：检查是否有上一生词尚未自评
+        pending_word = await database.get_pending_eval_word(uid)
+        if pending_word:
+            logger.info("User %d has pending evaluation word '%s', blocking next push.", uid, pending_word)
+            remind_buttons = [
+                [
+                    InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{pending_word}"),
+                ],
+                [
+                    InlineKeyboardButton("✅ 记住了", callback_data=f"rgr:{pending_word}:good"),
+                    InlineKeyboardButton("🤔 模糊", callback_data=f"rgr:{pending_word}:fuzzy"),
+                    InlineKeyboardButton("❌ 忘了", callback_data=f"rgr:{pending_word}:forgot"),
+                ],
+            ]
+            if is_scheduled:
+                remind_buttons.append([
+                    InlineKeyboardButton("😴 今天够了，明天见", callback_data="pause_opt:today")
+                ])
+
+            remind_text = (
+                f"🔔 *Active Recall 自评打卡提醒*\n\n"
+                f"上一生词 *`{pending_word}`* 还没有完成自评噢～\n\n"
+                f"请先在下方标记你的掌握程度，完成后将**立即为你解锁下一个单词**："
             )
-        except Exception:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=remind_text,
-                parse_mode=None,
-                reply_markup=InlineKeyboardMarkup(remind_buttons)
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=remind_text,
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(remind_buttons)
+                )
+            except Exception:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=remind_text,
+                    parse_mode=None,
+                    reply_markup=InlineKeyboardMarkup(remind_buttons)
+                )
+            return True
+
+        # 1. 优先检查是否有到期待复习的单词 (SM-2 交互式闪卡主动回忆)
+        due_item = await database.get_due_review_word(uid)
+
+        if due_item:
+            word = due_item["word"]
+            review_count = due_item["review_count"]
+
+            # 痛点二：单词复习时，立即把翻牌子的内容准备好（缓存已就绪则 0 延迟，未就绪则此时立即生成入库）
+            await _get_or_generate_word_explanation(nvidia, uid, word)
+
+            # 方案1：闪卡测验卡片 (Progressive Active Recall)
+            quiz_text = (
+                f"🔁 *Active Recall: 单词复习 (第 {review_count + 1} 轮)*\n\n"
+                f"💡 考考你的瞬时记忆：*`{word}`* 还记得是什么意思吗？\n\n"
+                f"💬 *可以直接打字回复我测试，也可以点击下方按钮查看答案与详解👇*"
             )
-        return
+            buttons = [
+                [
+                    InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{word}"),
+                    InlineKeyboardButton("👀 翻牌查看考点 (记为重温)", callback_data=f"reveal:{word}"),
+                ],
+                [
+                    InlineKeyboardButton("✅ 记住了", callback_data=f"rg:{word}:good"),
+                    InlineKeyboardButton("🤔 模糊", callback_data=f"rg:{word}:fuzzy"),
+                    InlineKeyboardButton("❌ 忘了 (翻牌)", callback_data=f"reveal:{word}"),
+                ]
+            ]
+            if is_scheduled:
+                buttons.append([
+                    InlineKeyboardButton("😴 今天够了，明天见", callback_data="pause_opt:today")
+                ])
 
-    # 1. 优先检查是否有到期待复习的单词 (SM-2 交互式闪卡主动回忆)
-    due_item = await database.get_due_review_word(uid)
+            keyboard = InlineKeyboardMarkup(buttons)
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=quiz_text,
+                    parse_mode="Markdown",
+                    reply_markup=keyboard
+                )
+            except Exception:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=quiz_text,
+                    parse_mode=None,
+                    reply_markup=keyboard
+                )
 
-    if due_item:
-        word = due_item["word"]
-        review_count = due_item["review_count"]
+            # 记录待测验单词和待自评单词
+            await database.set_pending_quiz_word(uid, word)
+            await database.set_pending_eval_word(uid, word)
+            logger.info("Pushed review flashcard '%s' to user %d (content pre-prepared in cache)", word, uid)
+            return True
 
-        # 痛点二：单词复习时，立即把翻牌子的内容准备好（缓存已就绪则 0 延迟，未就绪则此时立即生成入库）
-        await _get_or_generate_word_explanation(nvidia, uid, word)
+        # 2. 没有复习词，推送新词
+        idx = await database.get_vocab_progress(uid)
+        if idx >= len(vocab):
+            await context.bot.send_message(chat_id=chat_id, text="🎉 太棒了！你已经学完全部六级词汇！")
+            return True
 
-        # 方案1：闪卡测验卡片 (Progressive Active Recall)
-        quiz_text = (
-            f"🔁 *Active Recall: 单词复习 (第 {review_count + 1} 轮)*\n\n"
-            f"💡 考考你的瞬时记忆：*`{word}`* 还记得是什么意思吗？\n\n"
-            f"💬 *可以直接打字回复我测试，也可以点击下方按钮查看答案与详解👇*"
+        word_item = vocab[idx]
+        word = word_item["word"]
+
+        title_prefix = f"🔔 *Active Recall: 每日一词 (第 {idx + 1} 词) — `{word}`*\n\n"
+        explanation = await _get_or_generate_word_explanation(nvidia, uid, word)
+        reply = title_prefix + explanation
+
+        # 仅在 API 发生明确报错/限流时拦截，不做任何内容模式匹配
+        clean_text = reply.strip()
+        body_text = clean_text.replace(title_prefix.strip(), "").strip()
+        is_api_failed = (
+            not body_text or
+            body_text.startswith("❌") or
+            body_text.startswith("⏳") or
+            body_text.startswith("⚠️")
         )
+
+        if is_api_failed:
+            logger.error("Recall generation failed for user %d (word: %s): %s", uid, word, body_text[:120])
+            err_msg = f"⏳ 抱歉，生词 `{word}` 讲解生成暂时受阻（API 限流或不稳定），请稍候点击 /recall 重试～"
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=err_msg, parse_mode="Markdown")
+            except Exception:
+                await context.bot.send_message(chat_id=chat_id, text=err_msg, parse_mode=None)
+            # 绝不推进进度，绝不存入复习表！
+            return False
+
+        # 保存对话记录（新词）
+        await database.add_history(uid, "user", f"请讲解六级核心词汇：{word}")
+        history_id = await database.add_history(uid, "assistant", reply)
+
+        # 装配按钮
         buttons = [
             [
                 InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{word}"),
-                InlineKeyboardButton("👀 翻牌查看考点 (记为重温)", callback_data=f"reveal:{word}"),
+                InlineKeyboardButton("📖 听全文朗读", callback_data=f"tts_id:{history_id}"),
             ],
             [
                 InlineKeyboardButton("✅ 记住了", callback_data=f"rg:{word}:good"),
                 InlineKeyboardButton("🤔 模糊", callback_data=f"rg:{word}:fuzzy"),
-                InlineKeyboardButton("❌ 忘了 (翻牌)", callback_data=f"reveal:{word}"),
+                InlineKeyboardButton("❌ 忘了", callback_data=f"rg:{word}:forgot"),
             ]
         ]
+
+        # 若是定时任务触发，增加压力缓冲按钮「今天够了」
         if is_scheduled:
             buttons.append([
                 InlineKeyboardButton("😴 今天够了，明天见", callback_data="pause_opt:today")
             ])
 
         keyboard = InlineKeyboardMarkup(buttons)
+
+        # 发送消息
         try:
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=quiz_text,
+                text=reply,
                 parse_mode="Markdown",
                 reply_markup=keyboard
             )
         except Exception:
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=quiz_text,
+                text=reply,
                 parse_mode=None,
                 reply_markup=keyboard
             )
 
-        # 记录待测验单词和待自评单词
-        await database.set_pending_quiz_word(uid, word)
+        # 方案B：设置当前待自评生词（锁定下一个单词的推送）
         await database.set_pending_eval_word(uid, word)
-        logger.info("Pushed review flashcard '%s' to user %d (content pre-prepared in cache)", word, uid)
-        return
 
-    # 2. 没有复习词，推送新词
-    idx = await database.get_vocab_progress(uid)
-    if idx >= len(vocab):
-        await context.bot.send_message(chat_id=chat_id, text="🎉 太棒了！你已经学完全部六级词汇！")
-        return
-
-    word_item = vocab[idx]
-    word = word_item["word"]
-
-    title_prefix = f"🔔 *Active Recall: 每日一词 (第 {idx + 1} 词) — `{word}`*\n\n"
-    explanation = await _get_or_generate_word_explanation(nvidia, uid, word)
-    reply = title_prefix + explanation
-
-    # 仅在 API 发生明确报错/限流时拦截，不做任何内容模式匹配
-    clean_text = reply.strip()
-    body_text = clean_text.replace(title_prefix.strip(), "").strip()
-    is_api_failed = (
-        not body_text or
-        body_text.startswith("❌") or
-        body_text.startswith("⏳") or
-        body_text.startswith("⚠️")
-    )
-
-    if is_api_failed:
-        logger.error("Recall generation failed for user %d (word: %s): %s", uid, word, body_text[:120])
-        err_msg = f"⏳ 抱歉，生词 `{word}` 讲解生成暂时受阻（API 限流或不稳定），请稍候点击 /recall 重试～"
-        try:
-            await context.bot.send_message(chat_id=chat_id, text=err_msg, parse_mode="Markdown")
-        except Exception:
-            await context.bot.send_message(chat_id=chat_id, text=err_msg, parse_mode=None)
-        # 绝不推进进度，绝不存入复习表！
-        return
-
-    # 保存对话记录（新词）
-    await database.add_history(uid, "user", f"请讲解六级核心词汇：{word}")
-    history_id = await database.add_history(uid, "assistant", reply)
-
-    # 装配按钮
-    buttons = [
-        [
-            InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{word}"),
-            InlineKeyboardButton("📖 听全文朗读", callback_data=f"tts_id:{history_id}"),
-        ],
-        [
-            InlineKeyboardButton("✅ 记住了", callback_data=f"rg:{word}:good"),
-            InlineKeyboardButton("🤔 模糊", callback_data=f"rg:{word}:fuzzy"),
-            InlineKeyboardButton("❌ 忘了", callback_data=f"rg:{word}:forgot"),
-        ]
-    ]
-
-    # 若是定时任务触发，增加压力缓冲按钮「今天够了」
-    if is_scheduled:
-        buttons.append([
-            InlineKeyboardButton("😴 今天够了，明天见", callback_data="pause_opt:today")
-        ])
-
-    keyboard = InlineKeyboardMarkup(buttons)
-
-    # 发送消息
-    try:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=reply,
-            parse_mode="Markdown",
-            reply_markup=keyboard
-        )
-    except Exception:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=reply,
-            parse_mode=None,
-            reply_markup=keyboard
-        )
-
-    # 方案B：设置当前待自评生词（锁定下一个单词的推送）
-    await database.set_pending_eval_word(uid, word)
-
-    # 录入复习库并推进游标
-    await database.record_new_word(uid, word)
-    await database.update_vocab_progress(uid, idx + 1)
-    logger.info("Pushed new word '%s' to user %d (index %d -> %d)", word, uid, idx, idx + 1)
+        # 录入复习库并推进游标
+        await database.record_new_word(uid, word)
+        await database.update_vocab_progress(uid, idx + 1)
+        logger.info("Pushed new word '%s' to user %d (index %d -> %d)", word, uid, idx, idx + 1)
+        return True
 
 
 # ======================================================================
@@ -689,6 +708,11 @@ async def _send_recall_content(context: ContextTypes.DEFAULT_TYPE, uid: int, cha
 async def cmd_recall(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if not await _check_user(uid):
+        return
+
+    # 防并发：若后台正在为此用户生成单词，不重复调度
+    if _get_user_recall_lock(uid).locked():
+        await update.message.reply_text("⏳ 正在为你准备单词，请稍候，无需重复发送指令～", parse_mode="Markdown")
         return
 
     msg = await update.message.reply_text("📖 正在为你准备单词讲解与复习...", parse_mode="Markdown")
@@ -886,9 +910,11 @@ async def callback_review_grade(update: Update, context: ContextTypes.DEFAULT_TY
     streak = res["streak"]
 
     # 方案B：清空用户的待自评单词状态
+    was_cleared = False
     pending = await database.get_pending_eval_word(uid)
     if pending and pending.lower() == word.lower():
         await database.set_pending_eval_word(uid, None)
+        was_cleared = True
 
     # 清空可能存在的待测验状态
     quiz_p = await database.get_pending_quiz_word(uid)
@@ -943,9 +969,14 @@ async def callback_review_grade(update: Update, context: ContextTypes.DEFAULT_TY
             for row in old_kb:
                 # 如果是自评那一行 (包含 rg: 或 rgr:)，替换为状态展示
                 if any(btn.callback_data and (btn.callback_data.startswith("rg:") or btn.callback_data.startswith("rgr:")) for btn in row):
-                    new_kb_rows.append([
-                        InlineKeyboardButton(f"✅ 已记录 ({interval}天后复习 | 🔥连续{streak}天)", callback_data="noop")
-                    ])
+                    if is_from_reminder:
+                        new_kb_rows.append([
+                            InlineKeyboardButton("✅ 已完成补卡解锁 (正在推送下一词 🐾)", callback_data="noop")
+                        ])
+                    else:
+                        new_kb_rows.append([
+                            InlineKeyboardButton(f"✅ 已记录 ({interval}天后复习 | 🔥连续{streak}天)", callback_data="noop")
+                        ])
                 # 如果存在翻牌按钮，在用户明确已自评后移除翻牌按键
                 elif any(btn.callback_data and btn.callback_data.startswith("reveal:") for btn in row):
                     filtered_row = [btn for btn in row if not (btn.callback_data and btn.callback_data.startswith("reveal:"))]
@@ -955,17 +986,19 @@ async def callback_review_grade(update: Update, context: ContextTypes.DEFAULT_TY
                     new_kb_rows.append(row)
 
             # 痛点一：打卡完成后追加「➡️ 下一词」按钮，无需用户每次手动打字发 /recall
-            new_kb_rows.append([
-                InlineKeyboardButton("➡️ 下一词", callback_data="recall_next")
-            ])
+            # 注意：若是来自打卡阻断提醒（is_from_reminder），下方即将自动为你推送新词，绝不追加「➡️ 下一词」，避免诱发重复点击
+            if not is_from_reminder:
+                new_kb_rows.append([
+                    InlineKeyboardButton("➡️ 下一词", callback_data="recall_next")
+                ])
 
             try:
                 await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(new_kb_rows))
             except Exception:
                 pass
 
-    # 如果是从打卡阻断提醒完成评级，评完后立即推送当前应学单词
-    if is_from_reminder:
+    # 如果是从打卡阻断提醒完成评级，且确实由本次调用清除了阻断锁，评完后立即推送当前应学单词
+    if is_from_reminder and was_cleared:
         await _send_recall_content(context, uid=uid, chat_id=query.message.chat_id, is_scheduled=False)
 
 
@@ -1034,6 +1067,27 @@ async def callback_recall_next(update: Update, context: ContextTypes.DEFAULT_TYP
     if not await _check_user(uid):
         await query.answer("无权限", show_alert=True)
         return
+
+    # 防并发与防连击：若后台正在为此用户生成单词，不重复响应
+    if _get_user_recall_lock(uid).locked():
+        await query.answer("正在为你准备单词中，请稍候～", show_alert=False)
+        return
+
+    # 防连击与视觉反馈：将按钮就地置为「⏳ 正在出题...」
+    try:
+        if query.message and query.message.reply_markup:
+            new_rows = []
+            for row in query.message.reply_markup.inline_keyboard:
+                new_row = []
+                for btn in row:
+                    if btn.callback_data == "recall_next":
+                        new_row.append(InlineKeyboardButton("⏳ 正在出题...", callback_data="noop"))
+                    else:
+                        new_row.append(btn)
+                new_rows.append(new_row)
+            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(new_rows))
+    except Exception:
+        pass
 
     await query.answer("正在为你准备下一个单词...")
     await _send_recall_content(context, uid=uid, chat_id=query.message.chat_id, is_scheduled=False)
