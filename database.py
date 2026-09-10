@@ -101,6 +101,23 @@ async def init_db():
         except aiosqlite.OperationalError:
             pass
 
+        # 迁移旧模型配置到 deepseek-flash
+        try:
+            await db.execute("""
+                UPDATE users SET current_model = 'deepseek-flash'
+                WHERE current_model IS NULL 
+                   OR current_model LIKE '%minimax%' 
+                   OR current_model LIKE '%nvidia%' 
+                   OR current_model LIKE '%gemma%' 
+                   OR current_model LIKE '%moonshot%' 
+                   OR current_model LIKE '%openai%'
+                   OR current_model LIKE '%mistral%'
+                   OR current_model LIKE '%llama%'
+            """)
+            await db.commit()
+        except Exception as e:
+            logger.warning("User model migration warning: %s", e)
+
     logger.info("Database initialized.")
 
 

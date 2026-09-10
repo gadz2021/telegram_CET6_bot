@@ -9,26 +9,37 @@ import os
 import httpx
 from openai import AsyncOpenAI
 
-from config import NVIDIA_API_KEY, NVIDIA_BASE_URL, PROXY_URL, REQUEST_TIMEOUT, AVAILABLE_MODELS_FILE, DEFAULT_MODEL, RECOMMENDED_MODELS, VERIFY_MODELS, TEST_PROMPT
+from config import (
+    DEEPSEEK_API_KEY,
+    DEEPSEEK_BASE_URL,
+    PROXY_URL,
+    REQUEST_TIMEOUT,
+    AVAILABLE_MODELS_FILE,
+    DEFAULT_MODEL,
+    RECOMMENDED_MODELS,
+    VERIFY_MODELS,
+    TEST_PROMPT,
+    ENABLE_THINKING,
+)
 from rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
 
 
-class NvidiaClient:
-    """异步 NVIDIA NIM API 客户端，兼容 OpenAI 接口。"""
+class DeepSeekClient:
+    """异步 DeepSeek 官方 API 客户端，兼容 OpenAI 接口。"""
 
     def __init__(self, rate_limiter: RateLimiter):
         self.rate_limiter = rate_limiter
 
-        # 构建 httpx 异步客户端（NVIDIA API 直连，不走代理，忽略环境变量中的代理设置）
+        # 构建 httpx 异步客户端（DeepSeek 官方直连）
         self._http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(REQUEST_TIMEOUT, connect=30.0),
             trust_env=False,
         )
         self._client = AsyncOpenAI(
-            base_url=NVIDIA_BASE_URL,
-            api_key=NVIDIA_API_KEY,
+            base_url=DEEPSEEK_BASE_URL,
+            api_key=DEEPSEEK_API_KEY,
             http_client=self._http_client,
         )
 
@@ -142,6 +153,9 @@ class NvidiaClient:
 
         available_models = []
         test_messages = [{"role": "user", "content": TEST_PROMPT}]
+        extra_kwargs = {}
+        if not ENABLE_THINKING:
+            extra_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
 
         for i, model in enumerate(all_ids):
             logger.info("Testing model %d/%d: %s", i + 1, len(all_ids), model)
@@ -152,7 +166,8 @@ class NvidiaClient:
                     model=model,
                     messages=test_messages,
                     max_tokens=100,
-                    timeout=20.0
+                    timeout=20.0,
+                    **extra_kwargs,
                 )
                 duration = time.time() - start_t
                 logger.info("✅ Model %s is working. Speed: %.2fs", model, duration)
@@ -223,19 +238,24 @@ class NvidiaClient:
         logger.info("Rate limit acquired, starting chat request...")
 
         max_retries = 2
+        extra_kwargs = {}
+        if not ENABLE_THINKING:
+            extra_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+
         for attempt in range(max_retries + 1):
             try:
                 start_time = time.time()
-                logger.info("Sending request to NVIDIA API (model: %s)...", model)
+                logger.info("Sending request to DeepSeek API (model: %s)...", model)
                 response = await self._client.chat.completions.create(
                     model=model,
                     messages=messages,
                     temperature=0.7,
                     max_tokens=1024,
                     timeout=REQUEST_TIMEOUT,  # 显式设置超时
+                    **extra_kwargs,
                 )
                 duration = time.time() - start_time
-                logger.info("NVIDIA API response received in %.2fs.", duration)
+                logger.info("DeepSeek API response received in %.2fs.", duration)
                 # 提取回复文本 — 处理各种返回格式
                 return self._extract_content(response, model)
 
@@ -334,3 +354,8 @@ class NvidiaClient:
     async def close(self):
         """关闭底层 HTTP 客户端。"""
         await self._http_client.aclose()
+
+
+# 兼容别名
+NvidiaClient = DeepSeekClient
+

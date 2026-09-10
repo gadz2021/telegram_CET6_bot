@@ -153,10 +153,8 @@ async def _chat_with_auto_failover(nvidia: NvidiaClient, uid: int, messages: lis
 
     if is_failed:
         backup_candidates = [
-            "minimaxai/minimax-m3",
-            "google/gemma-4-31b-it",
-            "moonshotai/kimi-k3",
-            "openai/gpt-oss-20b",
+            "deepseek-flash",
+            "deepseek-v4-pro",
         ]
         fallback = None
         for cand in backup_candidates:

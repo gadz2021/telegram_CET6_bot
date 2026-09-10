@@ -1,7 +1,8 @@
 # 🐱 Telegram CET-6 英语外教 Bot
 
 > **专为大学英语六级（CET-6）备考打造的生产级智能外教系统。**  
-> 基于 **NVIDIA NIM API** 旗舰集群驱动，深度融合 **SM-2 科学间隔重复算法**、**渐进式闪卡互动（Progressive Active Recall）**、**24小时工业级静默容灾** 与 **自然语音合成引擎**。
+> 基于 **DeepSeek 官方 API（DeepSeek V4 Flash 旗舰）** 极速驱动，深度融合 **SM-2 科学间隔重复算法**、**渐进式闪卡互动（Progressive Active Recall）**、**秒级单词释义缓存库**、**24小时工业级静默容灾** 与 **自然语音合成引擎**。
+> *(注：原 NVIDIA NIM 版本已全量归档备份并标注 Tag: `v1.0.0-nim-final`)*
 
 ---
 
@@ -38,16 +39,15 @@
   - **复习预警**：当前已到期急需复习的单词数；
   - **连续打卡坚持**：🔥 连续学习天数（Streak Tracker），激励每日自律。
 
-### 5. 🚀 24/7 工业级高可用容灾（Auto-Failover）
-- **毫秒级静默容灾降级**：当遇到模型 404（下线）、410（生命周期结束）、429（第三方并发上限）或网关超时，系统在 1 毫秒内自动从可用梯队中智能调度备用模型（如 `minimax-m3` ➡️ `gemma-4-31b` ➡️ `kimi-k3`），用户端完全零中断感知。
-- **生词零丢失保护（Skip-Guard）**：彻底规避接口抖动导致词汇被跳过的缺陷，严格确保网络抖动时进度不前进、不漏词。
-- **防雪崩滑动窗口（40 RPM）**：进程内严格限制每分钟 40 次请求队列，平滑突刺，全天候稳定护航。
+### 5. ⚡ 极速推理与 Thinking 优化架构
+- **DeepSeek V4 Flash 旗舰直连**：从旧版 NVIDIA NIM 迁移至 DeepSeek 官方直连 API，端到端生成耗时从 20~25s 骤降至 **1.0 ~ 2.5s**。
+- **关闭 Thinking 实现毫秒级响应**：
+  - 针对单词释义、音标输出与真题考点生成场景，深度推理（Thinking）会产生 500~1500 tokens 的多余思考耗时（增加 6~10s 延迟）。
+  - 通过显式关闭 Thinking (`extra_body={"thinking": {"type": "disabled"}}`)，免除无意义思考开销，实现真正即开即用的流式闪卡体验。
+- **持久化 `word_cache` 预加载库**：学习卡片一旦生成即写入本地 SQLite 高速缓存，第二次复习或翻牌直接 **0.001s 本地极速返回**，零 API 消耗、零网络等待。
+- **防雪崩滑动窗口（60 RPM）**：支持高并发速率控制，全天候平稳运行。
 
-### 6. 🔍 三架构交叉消除幻觉（Consensus Mode `/verify`）
-- 一键调用 3 个不同技术架构（如 MiniMax / Google Gemma / Moonshot Kimi）的顶级大模型对上一条教学回复进行并行背对背校验。
-- 物理消除 AI 幻觉，彻底保证六级语法与生僻用法的绝对准确。
-
-### 7. 🔊 纯正双语神经语音（TTS Engine）
+### 6. 🔊 纯正双语神经语音（TTS Engine）
 - 集成 `edge-tts` 高质量神经语音与 `ffmpeg` 音频流转码，智能剥离表情符号生成专属发音文件。
 - **🔊 听单词发音**：单点针对当前单词，纯正美音精准朗读，解决“哑巴英语”。
 - **📖 听全文朗读**：完整朗读 AI 外教生成的英文例句与讲解。
@@ -60,13 +60,15 @@
 telegram辅助bot/
 ├── bot.py                 # 服务主入口：调度注册、并发轮询、定时任务
 ├── handlers.py            # 核心业务层：指令系统、主动闪卡交互、作答批改、回调状态机
-├── nvidia_client.py       # NVIDIA NIM 客户端：模型动态测速、自动容灾、双 Pass 探测
-├── database.py            # SQLite 异步持久层：SM-2 排期、打卡连击、白名单、阻断锁
+├── deepseek_client.py     # DeepSeek 官方客户端（兼容 OpenAI SDK，内置关闭 Thinking 参数）
+├── nvidia_client.py       # 客户端兼容层：动态测速、自动容灾、双 Pass 探测
+├── database.py            # SQLite 异步持久层：SM-2 排期、打卡连击、word_cache 缓存
 ├── rate_limiter.py        # 令牌滑动窗口限速器（Sliding-Window Algorithm）
 ├── config.py              # 敏感配置项（API Key、推送时间、默认模型）⚠️ 不入库
 ├── config.example.py      # 配置模板文件
 ├── cet6_words.json        # CET-6 乱序权威词库（5,651 词）
-├── available_models.json  # 自动巡检落盘的存活模型池与实时测速延迟表
+├── available_models.json  # 存活模型池与实时测速延迟表
+├── verify_deepseek.py     # 自动化全链路集成测试套件
 └── requirements.txt       # Python 项目依赖清单
 ```
 

@@ -3,11 +3,12 @@
 # ====== Telegram ======
 TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
 
-# ====== NVIDIA NIM API ======
-NVIDIA_API_KEY = "YOUR_NVIDIA_API_KEY"
-NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
-DEFAULT_MODEL = "minimaxai/minimax-m3"
-VISION_MODEL = "meta/llama-3.2-11b-vision-instruct"
+# ====== DeepSeek 官方 API ======
+DEEPSEEK_API_KEY = "YOUR_DEEPSEEK_API_KEY"
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEFAULT_MODEL = "deepseek-flash"
+VISION_MODEL = "deepseek-flash"
+ENABLE_THINKING = False  # 关闭 thinking 以实现 1~3 秒极速响应
 AVAILABLE_MODELS_FILE = "available_models.json"
 CHECK_INTERVAL = 21600  # 6 小时
 RECALL_INTERVAL = 7200  # 兼容保留
@@ -16,19 +17,17 @@ RECALL_PUSH_TIMES = ["09:00", "20:00"]  # 每日定时推送时间点 (24小时�
 VOCAB_FILE = "cet6_words.json"
 TEST_PROMPT = "请简短地用英语讲解一个医院急救室相关的词汇，并附带中文翻译。"
 RECOMMENDED_MODELS = [
-    "minimaxai/minimax-m3",
-    "google/gemma-4-31b-it",
-    "moonshotai/kimi-k3",
-    "moonshotai/kimi-k2.6",
-    "nvidia/llama-3.1-nemotron-70b-instruct",
-    "openai/gpt-oss-20b",
-    "mistralai/mistral-large-2-instruct",
+    "deepseek-flash",
+    "deepseek-v4-pro",
 ]
 VERIFY_MODELS = [
-    "minimaxai/minimax-m3",
-    "google/gemma-4-31b-it",
-    "moonshotai/kimi-k3",
+    "deepseek-flash",
+    "deepseek-v4-pro",
 ]
+
+# 兼容保留别名
+NVIDIA_API_KEY = DEEPSEEK_API_KEY
+NVIDIA_BASE_URL = DEEPSEEK_BASE_URL
 
 # ====== 代理 ======
 PROXY_URL = None
