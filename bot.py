@@ -23,11 +23,13 @@ if PROXY_URL:
 
 # ------------------------------------------------------------------
 
+from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
+    ContextTypes,
     filters,
 )
 
@@ -181,6 +183,19 @@ def main():
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
     )
+
+    # 注册全局异常处理器：记录详细堆栈，避免无声崩溃，给用户友好兜底回复
+    async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        logger.error("Exception while handling an update: %s", context.error, exc_info=context.error)
+        if isinstance(update, Update) and update.effective_message:
+            try:
+                await update.effective_message.reply_text(
+                    "😿 抱歉，外教小助手刚刚遇到了一点突发小状况，请稍候重试噢～"
+                )
+            except Exception:
+                pass
+
+    application.add_error_handler(global_error_handler)
 
     logger.info("Bot is running! Press Ctrl+C to stop.")
     application.run_polling(

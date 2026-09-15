@@ -1437,6 +1437,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         return
 
+    nvidia: NvidiaClient = context.bot_data["nvidia"]
+
     # 方案1：检查用户是否有正在进行闪卡测验的单词 (Progressive Active Recall 自然语言作答)
     quiz_word = await database.get_pending_quiz_word(uid)
     if quiz_word:
@@ -1457,9 +1459,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "3. 保持简短精炼（150字以内），严禁使用表格，严禁使用星号（*）做列表。"
         )
         system_msg = "你是专业的大学英语六级（CET-6）英语外教，善于鼓励学生，教学风格幽默亲切，使用简体中文。"
-        eval_reply = await _chat_with_auto_failover(
-            nvidia, uid, [{"role": "system", "content": system_msg}, {"role": "user", "content": eval_prompt}]
-        )
+        try:
+            eval_reply = await _chat_with_auto_failover(
+                nvidia, uid, [{"role": "system", "content": system_msg}, {"role": "user", "content": eval_prompt}]
+            )
+        except Exception as e:
+            logger.error("Failed to generate quiz evaluation for %s: %s", quiz_word, e)
+            eval_reply = f"🎓 收到你的作答，下次复习时继续巩固 `{quiz_word}` 噢！"
+
         eval_reply = f"🎓 *外教闪测点评 — `{quiz_word}`*\n\n" + _clean_reply(eval_reply)
         await database.add_history(uid, "user", f"[闪测回答: {quiz_word}] {text}")
         history_id = await database.add_history(uid, "assistant", eval_reply)
@@ -1481,7 +1488,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(eval_reply, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
         return
 
-    nvidia: NvidiaClient = context.bot_data["nvidia"]
     model = await _get_model(uid)
     history = await _get_history(uid)
 

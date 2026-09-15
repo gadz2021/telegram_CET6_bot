@@ -14,9 +14,13 @@ async def test_concurrent_recall_prevention():
     test_uid = 88888888
     
     # Initialize user state in DB
+    await database.add_to_whitelist(test_uid)
     await database.update_vocab_progress(test_uid, 0)
     await database.set_pending_eval_word(test_uid, None)
     await database.set_pending_quiz_word(test_uid, None)
+    async with database.aiosqlite.connect(database.DB_PATH) as db:
+        await db.execute("DELETE FROM word_schedule WHERE user_id = ?", (test_uid,))
+        await db.commit()
 
     # Mock context
     mock_bot = AsyncMock()
