@@ -66,6 +66,9 @@ from handlers import (
     callback_recall_next,
     callback_detail_quiz,
     callback_pause,
+    callback_slash_word,
+    callback_unslash_word,
+    callback_defer_word,
     handle_message,
     handle_photo,
 )
@@ -175,6 +178,9 @@ def main():
     application.add_handler(CallbackQueryHandler(callback_recall_next, pattern="^recall_next"))
     application.add_handler(CallbackQueryHandler(callback_detail_quiz, pattern="^detail:"))
     application.add_handler(CallbackQueryHandler(callback_pause, pattern="^pause_opt:"))
+    application.add_handler(CallbackQueryHandler(callback_slash_word, pattern="^slash:"))
+    application.add_handler(CallbackQueryHandler(callback_unslash_word, pattern="^unslash:"))
+    application.add_handler(CallbackQueryHandler(callback_defer_word, pattern="^defer:"))
 
     # 注册图片处理器
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))

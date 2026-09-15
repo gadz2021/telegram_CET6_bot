@@ -70,6 +70,25 @@ async def init_db():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # 每日新词进度统计表
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS daily_progress (
+                user_id INTEGER NOT NULL,
+                date TEXT NOT NULL,
+                new_count INTEGER DEFAULT 0,
+                PRIMARY KEY (user_id, date)
+            )
+        """)
+        # 顺延/延后生僻词表
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS deferred_words (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                word TEXT NOT NULL,
+                deferred_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, word)
+            )
+        """)
         await db.commit()
 
         # 数据库迁移：为旧表补充列
@@ -98,6 +117,13 @@ async def init_db():
             await db.execute("ALTER TABLE users ADD COLUMN pending_quiz_word TEXT DEFAULT NULL")
             await db.commit()
             logger.info("Database migration: Added pending_quiz_word to users")
+        except aiosqlite.OperationalError:
+            pass
+
+        try:
+            await db.execute("ALTER TABLE word_schedule ADD COLUMN is_slashed INTEGER DEFAULT 0")
+            await db.commit()
+            logger.info("Database migration: Added is_slashed to word_schedule")
         except aiosqlite.OperationalError:
             pass
 
@@ -342,12 +368,12 @@ async def record_new_word(user_id: int, word: str):
         await db.commit()
 
 async def get_due_review_word(user_id: int) -> dict | None:
-    """获取下一个到期复习的单词"""
+    """获取下一个到期复习的单词（自动排除已斩熟词）"""
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("""
             SELECT word, interval, ease_factor, review_count
             FROM word_schedule
-            WHERE user_id = ? AND next_review <= datetime('now')
+            WHERE user_id = ? AND (is_slashed IS NULL OR is_slashed = 0) AND next_review <= datetime('now')
             ORDER BY next_review ASC
             LIMIT 1
         """, (user_id,)) as cursor:
@@ -397,13 +423,14 @@ async def update_word_review(user_id: int, word: str, grade: str) -> dict:
             review_count += 1
 
         await db.execute("""
-            INSERT INTO word_schedule (user_id, word, next_review, interval, ease_factor, review_count, last_reviewed)
-            VALUES (?, ?, datetime('now', '+' || ? || ' days'), ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO word_schedule (user_id, word, next_review, interval, ease_factor, review_count, is_slashed, last_reviewed)
+            VALUES (?, ?, datetime('now', '+' || ? || ' days'), ?, ?, ?, 0, CURRENT_TIMESTAMP)
             ON CONFLICT(user_id, word) DO UPDATE SET
                 next_review = datetime('now', '+' || excluded.interval || ' days'),
                 interval = excluded.interval,
                 ease_factor = excluded.ease_factor,
                 review_count = excluded.review_count,
+                is_slashed = 0,
                 last_reviewed = CURRENT_TIMESTAMP
         """, (user_id, word, interval, interval, ease_factor, review_count))
         await db.commit()
@@ -417,6 +444,116 @@ async def update_word_review(user_id: int, word: str, grade: str) -> dict:
         "review_count": review_count,
         "streak": streak,
     }
+
+
+# ----------------------------------------------------------------------
+# 熟词斩 (Slash) 与 顺延生僻词 (Defer)
+# ----------------------------------------------------------------------
+async def slash_word(user_id: int, word: str):
+    """将单词标记为熟词斩，移出日常复习队列（复习间隔拉长至3650天）"""
+    word = word.lower()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            INSERT INTO word_schedule (user_id, word, next_review, interval, ease_factor, review_count, is_slashed, last_reviewed)
+            VALUES (?, ?, datetime('now', '+3650 days'), 3650, 2.5, 1, 1, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id, word) DO UPDATE SET
+                next_review = datetime('now', '+3650 days'),
+                interval = 3650,
+                is_slashed = 1,
+                last_reviewed = CURRENT_TIMESTAMP
+        """, (user_id, word))
+        await db.commit()
+
+async def unslash_word(user_id: int, word: str):
+    """撤回斩词，恢复至正常复习计划（1天后复习）"""
+    word = word.lower()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            UPDATE word_schedule
+            SET is_slashed = 0,
+                next_review = datetime('now', '+1 day'),
+                interval = 1,
+                last_reviewed = CURRENT_TIMESTAMP
+            WHERE user_id = ? AND word = ?
+        """, (user_id, word))
+        await db.commit()
+
+async def get_slashed_words_count(user_id: int) -> int:
+    """获取用户斩掉的熟词数量"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT COUNT(1) FROM word_schedule WHERE user_id = ? AND is_slashed = 1",
+            (user_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else 0
+
+async def defer_word(user_id: int, word: str):
+    """将低频生僻词记录到延后表，顺延至大纲考纲末尾，并移出日常复习队列"""
+    word = word.lower()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            INSERT OR IGNORE INTO deferred_words (user_id, word)
+            VALUES (?, ?)
+        """, (user_id, word))
+        await db.execute("""
+            DELETE FROM word_schedule WHERE user_id = ? AND word = ?
+        """, (user_id, word))
+        await db.commit()
+
+async def get_deferred_words(user_id: int) -> list[str]:
+    """获取用户顺延的生僻词列表"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT word FROM deferred_words WHERE user_id = ? ORDER BY id ASC",
+            (user_id,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [r[0] for r in rows]
+
+async def get_deferred_words_count(user_id: int) -> int:
+    """获取用户顺延的生僻词数量"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT COUNT(1) FROM deferred_words WHERE user_id = ?",
+            (user_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else 0
+
+def _get_shanghai_today_str() -> str:
+    """获取北京时间的今天日期字符串 YYYY-MM-DD"""
+    from datetime import datetime, timezone, timedelta
+    shanghai_tz = timezone(timedelta(hours=8))
+    return datetime.now(shanghai_tz).strftime("%Y-%m-%d")
+
+async def record_daily_new_word(user_id: int) -> int:
+    """记录今日学完/斩掉的新词数 +1，返回今日累计新词数"""
+    today_str = _get_shanghai_today_str()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            INSERT INTO daily_progress (user_id, date, new_count)
+            VALUES (?, ?, 1)
+            ON CONFLICT(user_id, date) DO UPDATE SET new_count = new_count + 1
+        """, (user_id, today_str))
+        await db.commit()
+        async with db.execute(
+            "SELECT new_count FROM daily_progress WHERE user_id = ? AND date = ?",
+            (user_id, today_str)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else 1
+
+async def get_today_new_word_count(user_id: int) -> int:
+    """获取用户今日已学/斩掉的新词总数"""
+    today_str = _get_shanghai_today_str()
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT new_count FROM daily_progress WHERE user_id = ? AND date = ?",
+            (user_id, today_str)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else 0
 
 
 # ----------------------------------------------------------------------
@@ -499,6 +636,18 @@ async def get_stats(user_id: int, total_vocab: int = 5651) -> dict:
             row = await cursor.fetchone()
             pause_until = row[0] if row else None
 
+        # 8. 熟词斩数
+        async with db.execute("SELECT COUNT(1) FROM word_schedule WHERE user_id = ? AND is_slashed = 1", (user_id,)) as cursor:
+            row = await cursor.fetchone()
+            slashed_count = row[0] if row else 0
+
+        # 9. 顺延生僻词数
+        async with db.execute("SELECT COUNT(1) FROM deferred_words WHERE user_id = ?", (user_id,)) as cursor:
+            row = await cursor.fetchone()
+            deferred_count = row[0] if row else 0
+
+    today_new_count = await get_today_new_word_count(user_id)
+
     return {
         "word_index": word_index,
         "total_vocab": total_vocab,
@@ -508,6 +657,9 @@ async def get_stats(user_id: int, total_vocab: int = 5651) -> dict:
         "streak": streak,
         "push_mode": push_mode,
         "pause_until": pause_until,
+        "slashed_count": slashed_count,
+        "deferred_count": deferred_count,
+        "today_new_count": today_new_count,
     }
 
 async def reset_vocab_progress_all():

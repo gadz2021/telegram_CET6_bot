@@ -432,19 +432,27 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pause_str = f"⏸️ 暂停至 {stats['pause_until'][:16]}" if stats["pause_until"] else "✅ 正常推送中"
     percent = round((stats["word_index"] / stats["total_vocab"]) * 100, 1) if stats["total_vocab"] else 0
 
+    today_new = stats.get("today_new_count", 0)
+    today_badge = "🎉 (今日已达成110词目标!)" if today_new >= 110 else f"（今日目标 110 词，完成度 {round(min(100.0, today_new / 110.0 * 100), 1)}%）"
+    slashed_cnt = stats.get("slashed_count", 0)
+    deferred_cnt = stats.get("deferred_count", 0)
+
     text = (
         "📊 *你的 CET-6 学习数据看板*\n\n"
+        f"🎯 *今日新词*：`{today_new} / 110` 词 {today_badge}\n"
         f"🔥 *连续学习*：`{stats['streak']}` 天\n"
-        f"📖 *新词进度*：`{stats['word_index']} / {stats['total_vocab']}` 词 ({percent}%)\n\n"
+        f"📖 *大纲进度*：`{stats['word_index']} / {stats['total_vocab']}` 词 ({percent}%)\n"
+        f"⚔️ *熟词秒斩*：`{slashed_cnt}` 词（移出复习，极速减负）\n"
+        f"🙈 *顺延生僻*：`{deferred_cnt}` 词（顺延至大纲末尾）\n\n"
         "🧠 *记忆库状态 (SM-2 遗忘曲线)*\n"
-        f"• 已加入复习池：`{stats['in_schedule']}` 词\n"
+        f"• 正在复习池：`{stats['in_schedule']}` 词\n"
         f"• 稳固掌握 (复习≥3次)：`{stats['mastered']}` 词\n"
         f"• 今日待复习：`{stats['due_count']}` 词\n\n"
         "⚙️ *当前设置*\n"
         f"• 每日推送：`{mode_str}`\n"
         f"• 状态：`{pause_str}`\n"
         f"• 当前模型：`{model}`\n\n"
-        "💡 *提示*：每次推送词汇后，点击下方的自评按钮可自动打卡并安排最佳复习时间！"
+        "💡 *提示*：遇到基础熟词点击「⚡ 熟词斩」即可秒过并不占用复习时间，低频生僻词可点击「🙈 放弃不背」顺延到考后！"
     )
 
     try:
@@ -459,7 +467,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _get_or_generate_word_explanation(nvidia: NvidiaClient, uid: int, word: str) -> str:
     """获取或生成单词的完整考点与释义（优先从 SQLite 缓存读取，实现 0 延迟秒出）"""
     cached = await database.get_word_cache(word)
-    if cached:
+    if cached and any(tag in cached for tag in ["【六级高频核心词", "【基础必会词", "【冲刺拔高词", "【低频生僻词"]):
         return cached
 
     with open(VOCAB_FILE, "r", encoding="utf-8") as f:
@@ -470,13 +478,19 @@ async def _get_or_generate_word_explanation(nvidia: NvidiaClient, uid: int, word
     prompt = (
         f"讲解六级核心词汇：{word}（{trans}）\n\n"
         "要求：\n"
-        f"1. 必须在开头清晰写出单词本身及其国际音标，如：**{word}** /音标/\n"
-        "2. 必须使用简体中文，严禁繁体中文\n"
-        "3. 风格亲切但专业，不要过度卖萌\n"
-        "4. emoji 每段最多1个，不要每句话都加\n"
-        "5. 每个部分之间必须空一行，分段清晰\n"
-        "6. 严禁表格和星号列表\n\n"
-        "输出格式：\n"
+        "1. 开头第一行必须准确标注该词在六级考试中的等级定位（必须且仅限以下四选一，紧接着写1句精准备考建议）：\n"
+        "   🏷️ 【六级高频核心词 🔥】（真题常考核心重难点，附1句备考建议，如重点精读例句与搭配）\n"
+        "   🏷️ 【基础必会词 💡】（初高中/四级通识词，附1句备考建议，如若已熟知可点熟词斩秒过）\n"
+        "   🏷️ 【冲刺拔高词 ✨】（深度词汇，附1句备考建议，如助力阅读高分与写作亮点）\n"
+        "   🏷️ 【低频生僻词 🍃】（考纲冷门生僻词，附1句备考建议，如不强求记忆，可点放弃不背）\n"
+        f"2. 第二行必须写出单词本身及其国际音标，如：📖 **{word}** /音标/\n"
+        "3. 必须使用简体中文，严禁繁体中文\n"
+        "4. 风格亲切但专业，不要过度卖萌\n"
+        "5. emoji 每段最多1个，不要每句话都加\n"
+        "6. 每个部分之间必须空一行，分段清晰\n"
+        "7. 严禁表格和星号列表\n\n"
+        "输出格式样例：\n"
+        "🏷️ 【六级高频核心词 🔥】真题常考核心词，建议重点精读例句与搭配\n\n"
         f"📖 **{word}** /国际音标/\n"
         "（用简体中文解释词义、词性、用法，2-3句话讲清楚）\n\n"
         "1️⃣ 英文例句\n简体中文翻译\n\n"
@@ -621,13 +635,15 @@ async def _send_recall_content(context: ContextTypes.DEFAULT_TYPE, uid: int, cha
         # 2. 没有复习词，推送新词
         idx = await database.get_vocab_progress(uid)
         if idx >= len(vocab):
-            await context.bot.send_message(chat_id=chat_id, text="🎉 太棒了！你已经学完全部六级词汇！")
+            await context.bot.send_message(chat_id=chat_id, text="🎉 太棒了！你已经学完全部六级大纲主线词汇！")
             return True
 
         word_item = vocab[idx]
         word = word_item["word"]
 
-        title_prefix = f"🔔 *Active Recall: 每日一词 (第 {idx + 1} 词) — `{word}`*\n\n"
+        today_count = await database.get_today_new_word_count(uid) + 1
+        goal_badge = "🎉 (今日已达成110词目标!) " if today_count >= 110 else ""
+        title_prefix = f"🔔 *Active Recall: 今日新词 第 {today_count}/110 词 {goal_badge}(总进度 {idx + 1}/5651) — `{word}`*\n\n"
         explanation = await _get_or_generate_word_explanation(nvidia, uid, word)
         reply = title_prefix + explanation
 
@@ -655,12 +671,20 @@ async def _send_recall_content(context: ContextTypes.DEFAULT_TYPE, uid: int, cha
         await database.add_history(uid, "user", f"请讲解六级核心词汇：{word}")
         history_id = await database.add_history(uid, "assistant", reply)
 
-        # 装配按钮
+        # 装配按钮：识别到低频生僻词时动态增加「放弃不背」
+        is_low_freq = ("【低频生僻词" in explanation) or ("低频生僻词" in explanation)
+        action_row = [
+            InlineKeyboardButton("⚡ 熟词斩 (太简单)", callback_data=f"slash:{word}")
+        ]
+        if is_low_freq:
+            action_row.insert(0, InlineKeyboardButton("🙈 放弃不背 (顺延末尾)", callback_data=f"defer:{word}"))
+
         buttons = [
             [
                 InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{word}"),
                 InlineKeyboardButton("📖 听全文朗读", callback_data=f"tts_id:{history_id}"),
             ],
+            action_row,
             [
                 InlineKeyboardButton("✅ 记住了", callback_data=f"rg:{word}:good"),
                 InlineKeyboardButton("🤔 模糊", callback_data=f"rg:{word}:fuzzy"),
@@ -698,7 +722,8 @@ async def _send_recall_content(context: ContextTypes.DEFAULT_TYPE, uid: int, cha
         # 录入复习库并推进游标
         await database.record_new_word(uid, word)
         await database.update_vocab_progress(uid, idx + 1)
-        logger.info("Pushed new word '%s' to user %d (index %d -> %d)", word, uid, idx, idx + 1)
+        await database.record_daily_new_word(uid)
+        logger.info("Pushed new word '%s' to user %d (index %d -> %d, today: %d/110)", word, uid, idx, idx + 1, today_count)
         return True
 
 
@@ -1137,6 +1162,134 @@ async def callback_detail_quiz(update: Update, context: ContextTypes.DEFAULT_TYP
     except Exception:
         await query.message.reply_text(text=full_text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
 
+
+# ======================================================================
+# Callback: 熟词斩 (Slash)
+# ======================================================================
+async def callback_slash_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理「⚡ 熟词斩 (太简单)」按钮点击：移出日常复习并无缝推送下一词"""
+    query = update.callback_query
+    uid = query.from_user.id
+
+    if not await _check_user(uid):
+        await query.answer("无权限", show_alert=True)
+        return
+
+    word = query.data.replace("slash:", "").strip()
+
+    # 标记熟词斩并移出日常复习
+    await database.slash_word(uid, word)
+
+    # 解锁待自评状态
+    pending = await database.get_pending_eval_word(uid)
+    if pending and pending.lower() == word.lower():
+        await database.set_pending_eval_word(uid, None)
+
+    quiz_p = await database.get_pending_quiz_word(uid)
+    if quiz_p and quiz_p.lower() == word.lower():
+        await database.set_pending_quiz_word(uid, None)
+
+    await query.answer(f"⚔️ 已斩掉「{word}」！不再占用日常复习队列～", show_alert=False)
+
+    # 将原消息的操作按钮替换为撤回按钮
+    try:
+        if query.message and query.message.reply_markup:
+            new_rows = []
+            for row in query.message.reply_markup.inline_keyboard:
+                # 排除包含 slash: 或 rg: 或 rgr: 或 defer: 的操作行
+                if any(btn.callback_data and (btn.callback_data.startswith("slash:") or btn.callback_data.startswith("rg:") or btn.callback_data.startswith("defer:")) for btn in row):
+                    continue
+                new_rows.append(row)
+            new_rows.append([
+                InlineKeyboardButton("⚔️ 已斩掉此熟词 (移出复习)", callback_data="noop"),
+                InlineKeyboardButton("↩️ 撤回斩词", callback_data=f"unslash:{word}"),
+            ])
+            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(new_rows))
+    except Exception:
+        pass
+
+    # 防并发保护：无缝推送下一个单词
+    await _send_recall_content(context, uid=uid, chat_id=query.message.chat_id, is_scheduled=False)
+
+
+# ======================================================================
+# Callback: 撤回斩词 (Unslash)
+# ======================================================================
+async def callback_unslash_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理「↩️ 撤回斩词」按钮点击：恢复单词至正常复习队列"""
+    query = update.callback_query
+    uid = query.from_user.id
+
+    if not await _check_user(uid):
+        await query.answer("无权限", show_alert=True)
+        return
+
+    word = query.data.replace("unslash:", "").strip()
+
+    await database.unslash_word(uid, word)
+    await query.answer(f"↩️ 已撤回斩词！「{word}」已重新加入常规复习计划～", show_alert=True)
+
+    # 将按钮恢复为正常状态
+    try:
+        if query.message and query.message.reply_markup:
+            new_rows = []
+            for row in query.message.reply_markup.inline_keyboard:
+                if any(btn.callback_data and btn.callback_data.startswith("unslash:") for btn in row):
+                    continue
+                new_rows.append(row)
+            new_rows.append([
+                InlineKeyboardButton("⚡ 熟词斩 (太简单)", callback_data=f"slash:{word}"),
+                InlineKeyboardButton("➡️ 下一词", callback_data="recall_next"),
+            ])
+            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(new_rows))
+    except Exception:
+        pass
+
+
+# ======================================================================
+# Callback: 顺延生僻词 (Defer)
+# ======================================================================
+async def callback_defer_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理「🙈 放弃不背 (顺延末尾)」按钮点击：将冷门生僻词移至词库最末"""
+    query = update.callback_query
+    uid = query.from_user.id
+
+    if not await _check_user(uid):
+        await query.answer("无权限", show_alert=True)
+        return
+
+    word = query.data.replace("defer:", "").strip()
+
+    await database.defer_word(uid, word)
+
+    # 解锁待自评状态
+    pending = await database.get_pending_eval_word(uid)
+    if pending and pending.lower() == word.lower():
+        await database.set_pending_eval_word(uid, None)
+
+    quiz_p = await database.get_pending_quiz_word(uid)
+    if quiz_p and quiz_p.lower() == word.lower():
+        await database.set_pending_quiz_word(uid, None)
+
+    await query.answer(f"🙈 已跳过「{word}」并顺延到大纲最后，考前主抓高频核心！", show_alert=False)
+
+    # 将原消息按钮替换为已顺延提示
+    try:
+        if query.message and query.message.reply_markup:
+            new_rows = []
+            for row in query.message.reply_markup.inline_keyboard:
+                if any(btn.callback_data and (btn.callback_data.startswith("defer:") or btn.callback_data.startswith("rg:") or btn.callback_data.startswith("slash:")) for btn in row):
+                    continue
+                new_rows.append(row)
+            new_rows.append([
+                InlineKeyboardButton("📌 已顺延到考纲末尾 (不占当前精力)", callback_data="noop")
+            ])
+            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(new_rows))
+    except Exception:
+        pass
+
+    # 无缝推送下一个单词
+    await _send_recall_content(context, uid=uid, chat_id=query.message.chat_id, is_scheduled=False)
 
 
 # ======================================================================
