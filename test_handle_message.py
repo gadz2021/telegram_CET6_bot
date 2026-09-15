@@ -42,10 +42,18 @@ async def test_handle_message_quiz_and_chat():
     # Check that reply_text was called with evaluation
     assert mock_msg.reply_text.called, "reply_text should have been called for quiz evaluation!"
     reply_call_args = mock_msg.reply_text.call_args[0]
+    reply_kwargs = mock_msg.reply_text.call_args[1]
     print(f"Quiz Evaluation Reply: {reply_call_args[0][:80]}...")
     assert "外教闪测点评" in reply_call_args[0]
     assert "cement" in reply_call_args[0]
-    
+    assert "已自动为你打卡记录掌握" in reply_call_args[0], "Should automatically record mastery!"
+
+    # Verify buttons on evaluation message include recall_next (no scrolling up!)
+    kb = reply_kwargs["reply_markup"].inline_keyboard
+    callbacks = [b.callback_data for row in kb for b in row]
+    print(f"Evaluation message buttons: {callbacks}")
+    assert "recall_next" in callbacks, "Must include recall_next button so user doesn't have to scroll up!"
+
     # Check pending_quiz_word is cleared
     p_quiz = await database.get_pending_quiz_word(test_uid)
     assert p_quiz is None, "pending_quiz_word should be cleared!"

@@ -1439,24 +1439,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     nvidia: NvidiaClient = context.bot_data["nvidia"]
 
-    # 方案1：检查用户是否有正在进行闪卡测验的单词 (Progressive Active Recall 自然语言作答)
-    quiz_word = await database.get_pending_quiz_word(uid)
-    if quiz_word:
-        await database.set_pending_quiz_word(uid, None)
+    # 方案1：检查用户是否有正在进行闪卡测验或待自评的单词 (Progressive Active Recall 自然语言作答)
+    target_word = await database.get_pending_quiz_word(uid)
+    is_explicit_quiz = bool(target_word)
+    if not target_word:
+        target_word = await database.get_pending_eval_word(uid)
 
+    if target_word:
         with open(VOCAB_FILE, "r", encoding="utf-8") as f:
             vocab = json.load(f)
-        trans_item = next((v for v in vocab if v["word"].lower() == quiz_word.lower()), None)
+        trans_item = next((v for v in vocab if v["word"].lower() == target_word.lower()), None)
         trans = json.dumps(trans_item["translations"], ensure_ascii=False) if trans_item else ""
 
         await update.message.chat.send_action(ChatAction.TYPING)
         eval_prompt = (
-            f"学生正在复习大学英语六级核心词汇：{quiz_word}（参考释义：{trans}）。\n"
-            f"学生给出的回答是：\"{text}\"\n\n"
+            f"当前学习/复习的核心词汇是：{target_word}（参考释义：{trans}）。\n"
+            f"学生当前发送的内容是：\"{text}\"\n\n"
             "任务：\n"
-            "1. 请亲切点评学生的回答（答对了热情夸奖肯定；有偏差或答错则给出温和纠正与地道释义）。\n"
-            "2. 简短补充 1 个与该词相关的六级高频用法或地道例句。\n"
-            "3. 保持简短精炼（150字以内），严禁使用表格，严禁使用星号（*）做列表。"
+            "1. 判断学生是否在尝试回答、翻译或解释该单词的中文意思？\n"
+            "   - 如果是，第一行必须输出判定标签（仅限以下其一）：\n"
+            "     【判定: 正确】（学生回答的意思基本正确或完全正确）\n"
+            "     【判定: 模糊】（学生回答意思有偏差、含糊或表达不确定）\n"
+            "     【判定: 错误】（学生回答完全错误或表示不会）\n"
+            "     空一行后亲切幽默地点评学生的回答（答对了热情夸奖肯定；有偏差或答错则给出温和纠偏与地道释义），并补充1个六级高频用法或短例句（150字以内）。\n"
+            "   - 如果学生明显不是在回答该词（如单纯日常问候、询问与该词无关的语法、发纯指令等），第一行输出：\n"
+            "     【模式: 日常对话】\n"
+            "     空一行后正常进行英语外教日常对话或答疑。\n"
+            "2. 严禁生成任何表格，严禁使用星号（*）做列表。"
         )
         system_msg = "你是专业的大学英语六级（CET-6）英语外教，善于鼓励学生，教学风格幽默亲切，使用简体中文。"
         try:
@@ -1464,29 +1473,88 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 nvidia, uid, [{"role": "system", "content": system_msg}, {"role": "user", "content": eval_prompt}]
             )
         except Exception as e:
-            logger.error("Failed to generate quiz evaluation for %s: %s", quiz_word, e)
-            eval_reply = f"🎓 收到你的作答，下次复习时继续巩固 `{quiz_word}` 噢！"
+            logger.error("Failed to generate quiz evaluation for %s: %s", target_word, e)
+            eval_reply = f"【判定: 正确】\n\n太棒啦！收到你的作答，继续保持噢！"
 
-        eval_reply = f"🎓 *外教闪测点评 — `{quiz_word}`*\n\n" + _clean_reply(eval_reply)
-        await database.add_history(uid, "user", f"[闪测回答: {quiz_word}] {text}")
-        history_id = await database.add_history(uid, "assistant", eval_reply)
+        eval_reply = _clean_reply(eval_reply).strip()
 
-        buttons = [
-            [
-                InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{quiz_word}"),
-                InlineKeyboardButton("📖 听全文朗读", callback_data=f"tts_id:{history_id}"),
-            ],
-            [
-                InlineKeyboardButton("✅ 记住了", callback_data=f"rg:{quiz_word}:good"),
-                InlineKeyboardButton("🤔 模糊", callback_data=f"rg:{quiz_word}:fuzzy"),
-                InlineKeyboardButton("❌ 忘了", callback_data=f"rg:{quiz_word}:forgot"),
-            ]
-        ]
-        try:
-            await update.message.reply_text(eval_reply, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
-        except Exception:
-            await update.message.reply_text(eval_reply, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
-        return
+        # 如果判定为日常对话（且不是显式闪卡问答），跳出当前分支继续走常规对话处理
+        if "【模式: 日常对话】" in eval_reply and not is_explicit_quiz:
+            pass
+        else:
+            # 解析自动判定结果
+            auto_grade = None
+            if "【判定: 正确】" in eval_reply or "判定: 正确" in eval_reply or "判定：正确" in eval_reply:
+                auto_grade = "good"
+            elif "【判定: 模糊】" in eval_reply or "判定: 模糊" in eval_reply or "判定：模糊" in eval_reply:
+                auto_grade = "fuzzy"
+            elif "【判定: 错误】" in eval_reply or "判定: 错误" in eval_reply or "判定：错误" in eval_reply:
+                auto_grade = "forgot"
+            else:
+                first_100 = eval_reply[:100]
+                if any(w in first_100 for w in ["正确", "准确", "太棒", "答对", "完全正确", "没毛病", "厉害"]):
+                    auto_grade = "good"
+                else:
+                    auto_grade = "fuzzy"
+
+            # 剔除内部判定标签
+            clean_eval = eval_reply
+            for tag in ["【判定: 正确】", "【判定: 模糊】", "【判定: 错误】", "【模式: 日常对话】",
+                        "【判定：正确】", "【判定：模糊】", "【判定：错误】", "【模式：日常对话】"]:
+                clean_eval = clean_eval.replace(tag, "").strip()
+
+            # 核心体验升级：根据外教判定，自动完成 SM-2 打卡归档，免去手动点击与返回上翻的繁琐操作！
+            res = await database.update_word_review(uid, target_word, auto_grade)
+            interval = res["interval"]
+            streak = res["streak"]
+
+            # 清除阻断与待测验状态
+            await database.set_pending_quiz_word(uid, None)
+            await database.set_pending_eval_word(uid, None)
+
+            if auto_grade == "good":
+                status_suffix = f"\n\n✅ *已自动为你打卡记录掌握！*（{interval}天后复习 | 🔥连续{streak}天）"
+                action_buttons = [
+                    [
+                        InlineKeyboardButton("➡️ 下一词", callback_data="recall_next"),
+                        InlineKeyboardButton("✏️ 修正为模糊", callback_data=f"rg:{target_word}:fuzzy"),
+                    ]
+                ]
+            elif auto_grade == "fuzzy":
+                status_suffix = f"\n\n🤔 *已自动记录为【模糊】*（近期强化复习 | 🔥连续{streak}天）"
+                action_buttons = [
+                    [
+                        InlineKeyboardButton("➡️ 下一词", callback_data="recall_next"),
+                        InlineKeyboardButton("✅ 改为记住了", callback_data=f"rg:{target_word}:good"),
+                        InlineKeyboardButton("❌ 忘了", callback_data=f"rg:{target_word}:forgot"),
+                    ]
+                ]
+            else:
+                status_suffix = f"\n\n❌ *已自动记录为【需重温】*（明天继续复习 | 🔥连续{streak}天）"
+                action_buttons = [
+                    [
+                        InlineKeyboardButton("➡️ 下一词", callback_data="recall_next"),
+                        InlineKeyboardButton("✅ 我记住了(改选)", callback_data=f"rg:{target_word}:good"),
+                    ]
+                ]
+
+            full_reply = f"🎓 *外教闪测点评 — `{target_word}`*\n\n" + clean_eval + status_suffix
+            await database.add_history(uid, "user", f"[闪测回答: {target_word}] {text}")
+            history_id = await database.add_history(uid, "assistant", full_reply)
+
+            buttons = [
+                [
+                    InlineKeyboardButton("🔊 听单词发音", callback_data=f"tts_word:{target_word}"),
+                    InlineKeyboardButton("📖 听全文朗读", callback_data=f"tts_id:{history_id}"),
+                ]
+            ] + action_buttons
+
+            keyboard = InlineKeyboardMarkup(buttons)
+            try:
+                await update.message.reply_text(full_reply, parse_mode="Markdown", reply_markup=keyboard)
+            except Exception:
+                await update.message.reply_text(full_reply, parse_mode=None, reply_markup=keyboard)
+            return
 
     model = await _get_model(uid)
     history = await _get_history(uid)
